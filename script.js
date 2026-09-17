@@ -5,53 +5,82 @@ const CONFIG = {
     file: "messages.txt"
 };
 
-// Message view passcode
+
+// ============================================================
+// MESSAGE VIEW PASSCODE
+// ============================================================
+
 const VIEW_PASSCODE = "MySecret123";
+
+
+// ============================================================
+// GLOBAL VARIABLES
+// ============================================================
 
 let githubToken = null;
 
-// ============================================================
-// LOCAL CACHE
-// ============================================================
-//
-// These store the latest known version of messages.txt.
-//
-// This is important because when you send multiple messages
-// without refreshing, we can use the SHA returned by GitHub
-// from the previous successful update instead of requesting
-// a potentially stale SHA again.
-//
 
+// Latest known messages.txt content
 let localMessagesContent = null;
+
+
+// Latest known GitHub SHA
 let localMessagesSha = null;
 
 
+// Prevent two Send operations from running simultaneously
+let isSending = false;
+
+
 // ============================================================
-// GITHUB API
+// GITHUB API URL
 // ============================================================
 
 function getApiUrl() {
-    return `https://api.github.com/repos/${CONFIG.owner}/${CONFIG.repo}/contents/${CONFIG.file}`;
+
+    return (
+        `https://api.github.com/repos/` +
+        `${CONFIG.owner}/` +
+        `${CONFIG.repo}/` +
+        `contents/` +
+        `${CONFIG.file}`
+    );
 }
 
+
+// ============================================================
+// GITHUB HEADERS
+// ============================================================
 
 function getHeaders() {
 
     if (!githubToken) {
-        throw new Error("GitHub token is required.");
+
+        throw new Error(
+            "GitHub token is required."
+        );
     }
 
+
     return {
-        "Accept": "application/vnd.github+json",
-        "Authorization": `Bearer ${githubToken}`,
-        "X-GitHub-Api-Version": "2022-11-28",
-        "Content-Type": "application/json"
+
+        "Accept":
+            "application/vnd.github+json",
+
+        "Authorization":
+            `Bearer ${githubToken}`,
+
+        "X-GitHub-Api-Version":
+            "2022-11-28",
+
+        "Content-Type":
+            "application/json"
     };
 }
 
 
 // ============================================================
-// BASE64 UTF-8
+// BASE64 DECODE
 // ============================================================
 
 function decodeBase64Utf8(base64) {
@@ -59,27 +88,41 @@ function decodeBase64Utf8(base64) {
     const cleanBase64 =
         base64.replace(/\n/g, "");
 
+
     const binary =
         atob(cleanBase64);
+
 
     const bytes =
         Uint8Array.from(
             binary,
-            char => char.charCodeAt(0)
+            char =>
+                char.charCodeAt(0)
         );
 
-    return new TextDecoder("utf-8").decode(bytes);
+
+    return new TextDecoder(
+        "utf-8"
+    ).decode(bytes);
 }
 
+
+// ============================================================
+// BASE64 ENCODE
+// ============================================================
 
 function encodeBase64Utf8(text) {
 
     const bytes =
         new TextEncoder().encode(text);
 
+
     let binary = "";
 
-    const chunkSize = 0x8000;
+
+    const chunkSize =
+        0x8000;
+
 
     for (
         let i = 0;
@@ -87,27 +130,31 @@ function encodeBase64Utf8(text) {
         i += chunkSize
     ) {
 
-        binary += String.fromCharCode(
-            ...bytes.subarray(
-                i,
-                i + chunkSize
-            )
-        );
+        binary +=
+            String.fromCharCode(
+                ...bytes.subarray(
+                    i,
+                    i + chunkSize
+                )
+            );
     }
+
 
     return btoa(binary);
 }
 
 
 // ============================================================
-// TOKEN
+// ASK FOR GITHUB TOKEN
 // ============================================================
 
 function askForToken() {
 
     if (githubToken) {
+
         return true;
     }
+
 
     const token =
         prompt(
@@ -116,7 +163,11 @@ function askForToken() {
             "Permission required: Contents / Code Read and Write"
         );
 
-    if (!token || !token.trim()) {
+
+    if (
+        !token ||
+        !token.trim()
+    ) {
 
         setStatus(
             "GitHub token is required.",
@@ -126,44 +177,59 @@ function askForToken() {
         return false;
     }
 
+
     githubToken =
         token.trim();
+
 
     return true;
 }
 
 
 // ============================================================
-// GET messages.txt
+// GET messages.txt FROM GITHUB
 // ============================================================
 
 async function getMessagesFile() {
 
     const url =
-        `${getApiUrl()}?ref=${encodeURIComponent(CONFIG.branch)}` +
+        getApiUrl() +
+        `?ref=${encodeURIComponent(
+            CONFIG.branch
+        )}` +
         `&_=${Date.now()}`;
+
 
     const response =
         await fetch(
             url,
             {
                 method: "GET",
-                headers: getHeaders(),
-                cache: "no-store"
+
+                headers:
+                    getHeaders(),
+
+                cache:
+                    "no-store"
             }
         );
+
 
     if (!response.ok) {
 
         let errorMessage =
             `GitHub error: ${response.status}`;
 
+
         try {
 
             const errorData =
                 await response.json();
 
-            if (errorData.message) {
+
+            if (
+                errorData.message
+            ) {
 
                 errorMessage +=
                     ` - ${errorData.message}`;
@@ -171,24 +237,37 @@ async function getMessagesFile() {
 
         } catch (_) {}
 
-        throw new Error(errorMessage);
+
+        throw new Error(
+            errorMessage
+        );
     }
+
 
     const data =
         await response.json();
 
-    if (!data.content || !data.sha) {
+
+    if (
+        !data.content ||
+        !data.sha
+    ) {
 
         throw new Error(
             "GitHub did not return messages.txt content or SHA."
         );
     }
 
+
     return {
-        sha: data.sha,
-        content: decodeBase64Utf8(
-            data.content
-        )
+
+        sha:
+            data.sha,
+
+        content:
+            decodeBase64Utf8(
+                data.content
+            )
     };
 }
 
@@ -204,10 +283,13 @@ async function updateMessagesFile(
 
     const body = {
 
-        message: "Add message",
+        message:
+            "Add message",
 
         content:
-            encodeBase64Utf8(content),
+            encodeBase64Utf8(
+                content
+            ),
 
         sha:
             sha,
@@ -221,18 +303,23 @@ async function updateMessagesFile(
         await fetch(
             getApiUrl(),
             {
-                method: "PUT",
+
+                method:
+                    "PUT",
 
                 headers:
                     getHeaders(),
 
                 body:
-                    JSON.stringify(body)
+                    JSON.stringify(
+                        body
+                    )
             }
         );
 
 
     let responseData = {};
+
 
     try {
 
@@ -250,11 +337,15 @@ async function updateMessagesFile(
                 `GitHub update failed: ${response.status}`
             );
 
+
         error.status =
             response.status;
 
+
         error.githubMessage =
-            responseData.message || "";
+            responseData.message ||
+            "";
+
 
         throw error;
     }
@@ -265,19 +356,101 @@ async function updateMessagesFile(
 
 
 // ============================================================
+// CHECK SHA CONFLICT
+// ============================================================
+
+function isShaConflict(error) {
+
+    if (!error) {
+
+        return false;
+    }
+
+
+    if (
+        error.status === 409 ||
+        error.status === 422
+    ) {
+
+        return true;
+    }
+
+
+    if (
+        error.githubMessage &&
+        error.githubMessage
+            .toLowerCase()
+            .includes(
+                "does not match"
+            )
+    ) {
+
+        return true;
+    }
+
+
+    return false;
+}
+
+
+// ============================================================
+// GET FRESH VERSION
+// ============================================================
+
+async function refreshLocalCache() {
+
+    const latest =
+        await getMessagesFile();
+
+
+    localMessagesContent =
+        latest.content;
+
+
+    localMessagesSha =
+        latest.sha;
+
+
+    return latest;
+}
+
+
+// ============================================================
 // SEND MESSAGE
 // ============================================================
 
 async function sendMessage() {
 
+    // --------------------------------------------------------
+    // Prevent double-click / simultaneous sends
+    // --------------------------------------------------------
+
+    if (isSending) {
+
+        setStatus(
+            "Please wait. Message is being sent..."
+        );
+
+        return;
+    }
+
+
     const senderElement =
-        document.getElementById("sender");
+        document.getElementById(
+            "sender"
+        );
+
 
     const messageElement =
-        document.getElementById("message");
+        document.getElementById(
+            "message"
+        );
 
 
-    if (!senderElement || !messageElement) {
+    if (
+        !senderElement ||
+        !messageElement
+    ) {
 
         setStatus(
             "Sender or message field not found.",
@@ -291,9 +464,14 @@ async function sendMessage() {
     const sender =
         senderElement.value.trim();
 
+
     const message =
         messageElement.value.trim();
 
+
+    // --------------------------------------------------------
+    // VALIDATION
+    // --------------------------------------------------------
 
     if (!sender) {
 
@@ -301,6 +479,8 @@ async function sendMessage() {
             "Please enter your name.",
             true
         );
+
+        senderElement.focus();
 
         return;
     }
@@ -313,11 +493,18 @@ async function sendMessage() {
             true
         );
 
+        messageElement.focus();
+
         return;
     }
 
 
+    // --------------------------------------------------------
+    // TOKEN
+    // --------------------------------------------------------
+
     if (!askForToken()) {
+
         return;
     }
 
@@ -328,8 +515,13 @@ async function sendMessage() {
         );
 
 
+    isSending = true;
+
+
     if (button) {
-        button.disabled = true;
+
+        button.disabled =
+            true;
     }
 
 
@@ -338,7 +530,7 @@ async function sendMessage() {
     );
 
 
-    const MAX_RETRIES = 5;
+    const MAX_RETRIES = 8;
 
 
     try {
@@ -352,7 +544,8 @@ async function sendMessage() {
             try {
 
                 // ------------------------------------------------
-                // GET CURRENT VERSION ONLY IF WE DON'T HAVE ONE
+                // STEP 1
+                // Make sure we have a current SHA
                 // ------------------------------------------------
 
                 if (
@@ -360,26 +553,23 @@ async function sendMessage() {
                     localMessagesSha === null
                 ) {
 
-                    const latest =
-                        await getMessagesFile();
-
-
-                    localMessagesContent =
-                        latest.content;
-
-
-                    localMessagesSha =
-                        latest.sha;
+                    await refreshLocalCache();
                 }
 
 
                 // ------------------------------------------------
-                // CREATE NEW MESSAGE
+                // STEP 2
+                // Create timestamp
                 // ------------------------------------------------
 
                 const timestamp =
                     new Date().toISOString();
 
+
+                // ------------------------------------------------
+                // STEP 3
+                // Create message
+                // ------------------------------------------------
 
                 const newEntry =
                     `[${timestamp}]\n` +
@@ -388,26 +578,30 @@ async function sendMessage() {
 
 
                 // ------------------------------------------------
-                // PREPARE EXISTING CONTENT
+                // STEP 4
+                // Prepare existing content
                 // ------------------------------------------------
 
                 let existingContent =
-                    localMessagesContent;
+                    localMessagesContent ||
+                    "";
 
 
                 if (
-                    existingContent.trim().length > 0 &&
-                    !existingContent.endsWith("\n\n")
+                    existingContent.trim()
+                        .length > 0
                 ) {
 
                     existingContent =
-                        existingContent.trimEnd() +
+                        existingContent
+                            .trimEnd() +
                         "\n\n";
                 }
 
 
                 // ------------------------------------------------
-                // ADD NEW MESSAGE
+                // STEP 5
+                // Add message
                 // ------------------------------------------------
 
                 const updatedContent =
@@ -417,7 +611,8 @@ async function sendMessage() {
 
 
                 // ------------------------------------------------
-                // UPDATE GITHUB
+                // STEP 6
+                // Save using CURRENT SHA
                 // ------------------------------------------------
 
                 const result =
@@ -428,11 +623,14 @@ async function sendMessage() {
 
 
                 // ------------------------------------------------
-                // VERY IMPORTANT
+                // STEP 7
                 //
-                // GitHub returns the SHA of the NEW version.
-                // Save it for the next message.
+                // IMPORTANT:
+                // Get the SHA returned by GitHub.
                 // ------------------------------------------------
+
+                let newSha = null;
+
 
                 if (
                     result &&
@@ -440,23 +638,54 @@ async function sendMessage() {
                     result.content.sha
                 ) {
 
-                    localMessagesSha =
+                    newSha =
                         result.content.sha;
+                }
+
+
+                // ------------------------------------------------
+                // STEP 8
+                //
+                // If GitHub returned a new SHA,
+                // use it immediately.
+                // ------------------------------------------------
+
+                if (newSha) {
+
+                    localMessagesSha =
+                        newSha;
 
                 } else {
 
-                    // Force a fresh GET before next message.
+                    /*
+                     * GitHub normally returns content.sha.
+                     *
+                     * If it doesn't, get the latest version
+                     * before another send.
+                     */
+
                     localMessagesSha =
                         null;
                 }
 
 
                 // ------------------------------------------------
-                // SAVE NEW CONTENT LOCALLY
+                // STEP 9
+                // Save current content locally
                 // ------------------------------------------------
 
                 localMessagesContent =
                     updatedContent;
+
+
+                // ------------------------------------------------
+                // STEP 10
+                // Display message immediately
+                // ------------------------------------------------
+
+                displayMessagesFromContent(
+                    localMessagesContent
+                );
 
 
                 // ------------------------------------------------
@@ -472,77 +701,73 @@ async function sendMessage() {
                     "";
 
 
-                // ------------------------------------------------
-                // DISPLAY WITHOUT GETTING GITHUB AGAIN
-                // ------------------------------------------------
-
-                displayMessagesFromContent(
-                    localMessagesContent
-                );
-
-
                 return;
 
 
             } catch (error) {
 
                 console.error(
-                    "Send attempt failed:",
+                    `Send attempt ${attempt} failed:`,
                     error
                 );
 
 
                 // ------------------------------------------------
-                // CHECK SHA CONFLICT
-                // ------------------------------------------------
-
-                const isShaConflict =
-
-                    error.status === 409 ||
-
-                    error.status === 422 ||
-
-                    (
-                        error.githubMessage &&
-
-                        error.githubMessage
-                            .toLowerCase()
-                            .includes(
-                                "does not match"
-                            )
-                    );
-
-
-                // ------------------------------------------------
-                // RETRY SHA CONFLICT
+                // SHA CONFLICT
                 // ------------------------------------------------
 
                 if (
-                    isShaConflict &&
-                    attempt < MAX_RETRIES
+                    isShaConflict(error)
                 ) {
 
+                    if (
+                        attempt >=
+                        MAX_RETRIES
+                    ) {
+
+                        throw new Error(
+                            "GitHub SHA conflict continued after " +
+                            MAX_RETRIES +
+                            " attempts. Please refresh once and try again."
+                        );
+                    }
+
+
                     setStatus(
-                        `Another message was added. ` +
-                        `Getting latest version... ` +
+                        "GitHub file changed. " +
+                        "Getting latest version... " +
                         `(${attempt}/${MAX_RETRIES})`
                     );
 
 
-                    // IMPORTANT:
-                    // Clear old SHA/content.
-                    // Next attempt will GET GitHub again.
+                    // ------------------------------------------------
+                    // Clear stale cache
+                    // ------------------------------------------------
 
                     localMessagesContent =
                         null;
+
 
                     localMessagesSha =
                         null;
 
 
+                    // ------------------------------------------------
+                    // Wait before reading GitHub again
+                    // ------------------------------------------------
+
                     await sleep(
-                        700 * attempt
+                        1000 * attempt
                     );
+
+
+                    // ------------------------------------------------
+                    // IMPORTANT:
+                    //
+                    // Read the latest version again.
+                    // ------------------------------------------------
+
+                    await refreshLocalCache();
 
 
                     continue;
@@ -555,19 +780,21 @@ async function sendMessage() {
 
 
         throw new Error(
-            "Could not update messages.txt after several attempts."
+            "Could not save message."
         );
 
 
     } catch (error) {
 
-        console.error(error);
+        console.error(
+            "Final send error:",
+            error
+        );
 
-
-        // Clear cache after failure.
 
         localMessagesContent =
             null;
+
 
         localMessagesSha =
             null;
@@ -581,15 +808,21 @@ async function sendMessage() {
 
     } finally {
 
+        isSending =
+            false;
+
+
         if (button) {
-            button.disabled = false;
+
+            button.disabled =
+                false;
         }
     }
 }
 
 
 // ============================================================
-// FETCH MESSAGES
+// FETCH ALL MESSAGES
 // ============================================================
 
 async function fetchMessages() {
@@ -600,7 +833,10 @@ async function fetchMessages() {
         );
 
 
-    if (password !== VIEW_PASSCODE) {
+    if (
+        password !==
+        VIEW_PASSCODE
+    ) {
 
         setStatus(
             "Incorrect view passcode.",
@@ -612,6 +848,7 @@ async function fetchMessages() {
 
 
     if (!askForToken()) {
+
         return;
     }
 
@@ -633,7 +870,9 @@ async function fetchMessages() {
 
     } catch (error) {
 
-        console.error(error);
+        console.error(
+            error
+        );
 
 
         setStatus(
@@ -672,16 +911,24 @@ function displayMessagesFromContent(
     }
 
 
-    // Make Messages section visible.
+    // --------------------------------------------------------
+    // Show Messages section
+    // --------------------------------------------------------
 
     if (messagesSection) {
-        messagesSection.hidden = false;
+
+        messagesSection.hidden =
+            false;
     }
 
 
     messagesContainer.innerHTML =
         "";
 
+
+    // --------------------------------------------------------
+    // No messages
+    // --------------------------------------------------------
 
     if (
         !content ||
@@ -695,13 +942,13 @@ function displayMessagesFromContent(
     }
 
 
-    // ----------------------------------------------------------
+    // --------------------------------------------------------
     // MESSAGE PARSER
     //
     // Each timestamp starts a new message.
     //
-    // This does NOT depend on blank lines.
-    // ----------------------------------------------------------
+    // Blank lines are NOT required.
+    // --------------------------------------------------------
 
     const messagePattern =
         /\[([^\]]+)\]\s*\nSender:\s*(.*?)\s*\nMessage:\s*([\s\S]*?)(?=\n\[|$)/g;
@@ -740,7 +987,8 @@ function displayMessagesFromContent(
                 timestamp,
 
             sender:
-                sender || "Unknown",
+                sender ||
+                "Unknown",
 
             message:
                 message
@@ -748,7 +996,13 @@ function displayMessagesFromContent(
     }
 
 
-    if (messages.length === 0) {
+    // --------------------------------------------------------
+    // No valid messages
+    // --------------------------------------------------------
+
+    if (
+        messages.length === 0
+    ) {
 
         messagesContainer.innerHTML =
             "<p>No messages found.</p>";
@@ -757,14 +1011,16 @@ function displayMessagesFromContent(
     }
 
 
-    // Newest first.
+    // --------------------------------------------------------
+    // Newest message first
+    // --------------------------------------------------------
 
     messages.reverse();
 
 
-    // ----------------------------------------------------------
-    // DISPLAY EACH MESSAGE
-    // ----------------------------------------------------------
+    // --------------------------------------------------------
+    // DISPLAY
+    // --------------------------------------------------------
 
     messages.forEach(
         messageData => {
@@ -845,7 +1101,7 @@ function displayMessagesFromContent(
             }
 
 
-            // Add elements to card.
+            // Add elements
 
             card.appendChild(
                 senderElement
@@ -871,7 +1127,7 @@ function displayMessagesFromContent(
 
 
 // ============================================================
-// GET AND DISPLAY LATEST GITHUB MESSAGES
+// GET LATEST MESSAGES FROM GITHUB
 // ============================================================
 
 async function displayMessagesFromGitHub() {
@@ -897,24 +1153,23 @@ async function displayMessagesFromGitHub() {
 
 
     if (messagesSection) {
-        messagesSection.hidden = false;
+
+        messagesSection.hidden =
+            false;
     }
 
 
-    // ----------------------------------------------------------
-    // IMPORTANT
-    //
-    // Fetch the latest version from GitHub when user explicitly
-    // clicks "Fetch All Messages".
-    // ----------------------------------------------------------
+    // --------------------------------------------------------
+    // Get latest GitHub version
+    // --------------------------------------------------------
 
     const data =
         await getMessagesFile();
 
 
-    // ----------------------------------------------------------
-    // UPDATE LOCAL CACHE
-    // ----------------------------------------------------------
+    // --------------------------------------------------------
+    // Update local cache
+    // --------------------------------------------------------
 
     localMessagesContent =
         data.content;
@@ -924,9 +1179,9 @@ async function displayMessagesFromGitHub() {
         data.sha;
 
 
-    // ----------------------------------------------------------
-    // DISPLAY
-    // ----------------------------------------------------------
+    // --------------------------------------------------------
+    // Display
+    // --------------------------------------------------------
 
     displayMessagesFromContent(
         localMessagesContent
@@ -950,6 +1205,7 @@ function setStatus(
 
 
     if (!status) {
+
         return;
     }
 
@@ -984,7 +1240,7 @@ function sleep(
 
 
 // ============================================================
-// INITIALIZE BUTTONS
+// INITIALIZE
 // ============================================================
 
 document.addEventListener(
@@ -1003,9 +1259,9 @@ document.addEventListener(
             );
 
 
-        // ------------------------------------------------------
+        // ----------------------------------------------------
         // SEND BUTTON
-        // ------------------------------------------------------
+        // ----------------------------------------------------
 
         if (sendButton) {
 
@@ -1022,9 +1278,9 @@ document.addEventListener(
         }
 
 
-        // ------------------------------------------------------
+        // ----------------------------------------------------
         // FETCH BUTTON
-        // ------------------------------------------------------
+        // ----------------------------------------------------
 
         if (fetchButton) {
 
