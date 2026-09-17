@@ -2,6 +2,7 @@
 <html lang="en">
 
 <head>
+
     <meta charset="UTF-8">
 
     <meta
@@ -9,98 +10,220 @@
         content="width=device-width, initial-scale=1.0"
     >
 
-    <title>Shared Message App</title>
+    <title>Shared Message Board</title>
 
     <link
         rel="stylesheet"
-        href="style.css"
+        href="style.css?v=4"
     >
+
 </head>
+
 
 <body>
 
-    <main class="container">
-
-        <h1>Shared Message App</h1>
-
-        <div class="form-group">
-
-            <label for="sender">
-                Your Name
-            </label>
-
-            <input
-                type="text"
-                id="sender"
-                placeholder="Enter your name"
-                autocomplete="off"
-            >
-
-        </div>
+    <div class="app-container">
 
 
-        <div class="form-group">
+        <!-- ==================================================
+             LEFT SIDE
+        =================================================== -->
 
-            <label for="message">
-                Message
-            </label>
+        <aside class="left-panel">
 
-            <textarea
-                id="message"
-                rows="5"
-                placeholder="Write your message..."
-            ></textarea>
+            <div class="logo-area">
 
-        </div>
+                <div class="logo">
+                    💬
+                </div>
 
+                <div>
 
-        <div class="button-group">
+                    <h1>
+                        Message Board
+                    </h1>
 
-            <button
-                id="sendButton"
-                type="button"
-            >
-                Send Message
-            </button>
+                    <p>
+                        Share your thoughts
+                    </p>
 
+                </div>
 
-            <button
-                id="fetchButton"
-                type="button"
-                class="green"
-            >
-                Fetch All Messages
-            </button>
-
-        </div>
+            </div>
 
 
-        <div
-            id="status"
-            class="status"
-        ></div>
+            <!-- SEND MESSAGE -->
+
+            <div class="send-panel">
+
+                <h2>
+                    Send Message
+                </h2>
+
+                <p class="description">
+                    Enter your name and message below.
+                </p>
 
 
-        <section
-            id="messagesSection"
-            hidden
-        >
+                <!-- NAME -->
 
-            <h2>Messages</h2>
+                <label for="sender">
+                    Your Name
+                </label>
 
-            <div id="messages"></div>
+                <input
+                    type="text"
+                    id="sender"
+                    placeholder="Enter your name"
+                    autocomplete="off"
+                >
 
-        </section>
 
-    </main>
+                <!-- MESSAGE -->
+
+                <label for="message">
+                    Message
+                </label>
+
+                <textarea
+                    id="message"
+                    rows="7"
+                    placeholder="Write your message..."
+                ></textarea>
 
 
-    <!--
-        ?v=2 prevents the browser from using an old cached
-        version of script.js.
-    -->
+                <!-- SEND -->
 
-    <script src="script.js?v=567"></script>
+                <button
+                    id="sendButton"
+                    type="button"
+                    class="send-button"
+                >
+
+                    <span>
+                        ➤
+                    </span>
+
+                    Send Message
+
+                </button>
+
+
+                <!-- STATUS -->
+
+                <div
+                    id="status"
+                    class="status"
+                ></div>
+
+            </div>
+
+
+            <!-- REFRESH -->
+
+            <div class="left-footer">
+
+                <button
+                    id="fetchButton"
+                    type="button"
+                    class="refresh-button"
+                >
+
+                    🔄 Fetch All Messages
+
+                </button>
+
+
+                <p>
+                    Messages are automatically updated.
+                </p>
+
+            </div>
+
+        </aside>
+
+
+        <!-- ==================================================
+             RIGHT SIDE
+        =================================================== -->
+
+        <main class="right-panel">
+
+
+            <!-- HEADER -->
+
+            <header class="messages-header">
+
+                <div>
+
+                    <h2>
+                        All Messages
+                    </h2>
+
+                    <p>
+                        Shared messages
+                    </p>
+
+                </div>
+
+
+                <div class="live-indicator">
+
+                    <span class="live-dot"></span>
+
+                    <span>
+                        Live
+                    </span>
+
+                </div>
+
+            </header>
+
+
+            <!-- MESSAGE AREA -->
+
+            <section class="messages-area">
+
+                <div
+                    id="messages"
+                    class="messages"
+                >
+
+                    <div class="empty-message">
+
+                        <div class="empty-icon">
+                            💬
+                        </div>
+
+                        <h3>
+                            No messages loaded
+                        </h3>
+
+                        <p>
+                            Click "Fetch All Messages" to load messages.
+                        </p>
+
+                    </div>
+
+                </div>
+
+            </section>
+
+
+        </main>
+
+
+    </div>
+
+
+    <!-- ======================================================
+         IMPORTANT
+
+         v=4 prevents browser cache from loading an old
+         script.js.
+    ======================================================= -->
+
+    <script src="script.js?v=4"></script>
 
 </body>
 

@@ -1,6 +1,3 @@
-console.log("NEW SCRIPT VERSION 999 LOADED");
-alert("NEW SCRIPT VERSION 999 LOADED");
-
 const CONFIG = {
     owner: "learnui2026",
     repo: "learnui2026",
@@ -10,29 +7,31 @@ const CONFIG = {
 
 
 // ============================================================
-// MESSAGE VIEW PASSCODE
+// VIEW PASSCODE
 // ============================================================
 
-const VIEW_PASSCODE = "MySecret123";
+const VIEW_PASSCODE =
+    "MySecret123";
 
 
 // ============================================================
 // GLOBAL VARIABLES
 // ============================================================
 
-let githubToken = null;
+let githubToken =
+    null;
 
+let localMessagesContent =
+    null;
 
-// Latest known messages.txt content
-let localMessagesContent = null;
+let localMessagesSha =
+    null;
 
+let isSending =
+    false;
 
-// Latest known GitHub SHA
-let localMessagesSha = null;
-
-
-// Prevent two Send operations from running simultaneously
-let isSending = false;
+let autoRefreshTimer =
+    null;
 
 
 // ============================================================
@@ -45,8 +44,7 @@ function getApiUrl() {
         `https://api.github.com/repos/` +
         `${CONFIG.owner}/` +
         `${CONFIG.repo}/` +
-        `contents/` +
-        `${CONFIG.file}`
+        `contents/${CONFIG.file}`
     );
 }
 
@@ -63,7 +61,6 @@ function getHeaders() {
             "GitHub token is required."
         );
     }
-
 
     return {
 
@@ -86,15 +83,18 @@ function getHeaders() {
 // BASE64 DECODE
 // ============================================================
 
-function decodeBase64Utf8(base64) {
+function decodeBase64Utf8(
+    base64
+) {
 
-    const cleanBase64 =
-        base64.replace(/\n/g, "");
-
+    const clean =
+        base64.replace(
+            /\n/g,
+            ""
+        );
 
     const binary =
-        atob(cleanBase64);
-
+        atob(clean);
 
     const bytes =
         Uint8Array.from(
@@ -102,7 +102,6 @@ function decodeBase64Utf8(base64) {
             char =>
                 char.charCodeAt(0)
         );
-
 
     return new TextDecoder(
         "utf-8"
@@ -114,18 +113,20 @@ function decodeBase64Utf8(base64) {
 // BASE64 ENCODE
 // ============================================================
 
-function encodeBase64Utf8(text) {
+function encodeBase64Utf8(
+    text
+) {
 
     const bytes =
-        new TextEncoder().encode(text);
+        new TextEncoder().encode(
+            text
+        );
 
-
-    let binary = "";
-
+    let binary =
+        "";
 
     const chunkSize =
         0x8000;
-
 
     for (
         let i = 0;
@@ -142,7 +143,6 @@ function encodeBase64Utf8(text) {
             );
     }
 
-
     return btoa(binary);
 }
 
@@ -158,14 +158,12 @@ function askForToken() {
         return true;
     }
 
-
     const token =
         prompt(
             "Enter your GitHub Personal Access Token.\n\n" +
             "Repository: learnui2026/learnui2026\n" +
             "Permission required: Contents / Code Read and Write"
         );
-
 
     if (
         !token ||
@@ -180,34 +178,40 @@ function askForToken() {
         return false;
     }
 
-
     githubToken =
         token.trim();
-
 
     return true;
 }
 
 
 // ============================================================
-// GET messages.txt FROM GITHUB
+// GET messages.txt
 // ============================================================
 
 async function getMessagesFile() {
 
+    if (!askForToken()) {
+        throw new Error(
+            "GitHub token is required."
+        );
+    }
+
     const url =
         getApiUrl() +
+
         `?ref=${encodeURIComponent(
             CONFIG.branch
         )}` +
-        `&_=${Date.now()}`;
 
+        `&_=${Date.now()}`;
 
     const response =
         await fetch(
             url,
             {
-                method: "GET",
+                method:
+                    "GET",
 
                 headers:
                     getHeaders(),
@@ -217,18 +221,15 @@ async function getMessagesFile() {
             }
         );
 
-
     if (!response.ok) {
 
         let errorMessage =
             `GitHub error: ${response.status}`;
 
-
         try {
 
             const errorData =
                 await response.json();
-
 
             if (
                 errorData.message
@@ -240,16 +241,13 @@ async function getMessagesFile() {
 
         } catch (_) {}
 
-
         throw new Error(
             errorMessage
         );
     }
 
-
     const data =
         await response.json();
-
 
     if (
         !data.content ||
@@ -260,7 +258,6 @@ async function getMessagesFile() {
             "GitHub did not return messages.txt content or SHA."
         );
     }
-
 
     return {
 
@@ -301,12 +298,10 @@ async function updateMessagesFile(
             CONFIG.branch
     };
 
-
     const response =
         await fetch(
             getApiUrl(),
             {
-
                 method:
                     "PUT",
 
@@ -320,9 +315,8 @@ async function updateMessagesFile(
             }
         );
 
-
-    let responseData = {};
-
+    let responseData =
+        {};
 
     try {
 
@@ -330,7 +324,6 @@ async function updateMessagesFile(
             await response.json();
 
     } catch (_) {}
-
 
     if (!response.ok) {
 
@@ -340,35 +333,32 @@ async function updateMessagesFile(
                 `GitHub update failed: ${response.status}`
             );
 
-
         error.status =
             response.status;
-
 
         error.githubMessage =
             responseData.message ||
             "";
 
-
         throw error;
     }
-
 
     return responseData;
 }
 
 
 // ============================================================
-// CHECK SHA CONFLICT
+// SHA CONFLICT CHECK
 // ============================================================
 
-function isShaConflict(error) {
+function isShaConflict(
+    error
+) {
 
     if (!error) {
 
         return false;
     }
-
 
     if (
         error.status === 409 ||
@@ -378,9 +368,9 @@ function isShaConflict(error) {
         return true;
     }
 
-
     if (
         error.githubMessage &&
+
         error.githubMessage
             .toLowerCase()
             .includes(
@@ -391,13 +381,12 @@ function isShaConflict(error) {
         return true;
     }
 
-
     return false;
 }
 
 
 // ============================================================
-// GET FRESH VERSION
+// REFRESH LOCAL CACHE
 // ============================================================
 
 async function refreshLocalCache() {
@@ -405,14 +394,11 @@ async function refreshLocalCache() {
     const latest =
         await getMessagesFile();
 
-
     localMessagesContent =
         latest.content;
 
-
     localMessagesSha =
         latest.sha;
-
 
     return latest;
 }
@@ -424,9 +410,7 @@ async function refreshLocalCache() {
 
 async function sendMessage() {
 
-    // --------------------------------------------------------
-    // Prevent double-click / simultaneous sends
-    // --------------------------------------------------------
+    // Prevent multiple sends at exactly the same time.
 
     if (isSending) {
 
@@ -437,18 +421,15 @@ async function sendMessage() {
         return;
     }
 
-
     const senderElement =
         document.getElementById(
             "sender"
         );
 
-
     const messageElement =
         document.getElementById(
             "message"
         );
-
 
     if (
         !senderElement ||
@@ -463,10 +444,8 @@ async function sendMessage() {
         return;
     }
 
-
     const sender =
         senderElement.value.trim();
-
 
     const message =
         messageElement.value.trim();
@@ -487,7 +466,6 @@ async function sendMessage() {
 
         return;
     }
-
 
     if (!message) {
 
@@ -517,9 +495,8 @@ async function sendMessage() {
             "sendButton"
         );
 
-
-    isSending = true;
-
+    isSending =
+        true;
 
     if (button) {
 
@@ -527,13 +504,13 @@ async function sendMessage() {
             true;
     }
 
-
     setStatus(
         "Sending message..."
     );
 
 
-    const MAX_RETRIES = 8;
+    const MAX_RETRIES =
+        8;
 
 
     try {
@@ -547,8 +524,7 @@ async function sendMessage() {
             try {
 
                 // ------------------------------------------------
-                // STEP 1
-                // Make sure we have a current SHA
+                // GET CURRENT VERSION IF NEEDED
                 // ------------------------------------------------
 
                 if (
@@ -561,8 +537,7 @@ async function sendMessage() {
 
 
                 // ------------------------------------------------
-                // STEP 2
-                // Create timestamp
+                // CREATE TIMESTAMP
                 // ------------------------------------------------
 
                 const timestamp =
@@ -570,9 +545,16 @@ async function sendMessage() {
 
 
                 // ------------------------------------------------
-                // STEP 3
-                // Create message
+                // CREATE MESSAGE
                 // ------------------------------------------------
+
+                /*
+                 * Storage format in messages.txt:
+                 *
+                 * [2026-09-18T...]
+                 * Sender: Bishnu Kumar
+                 * Message: Hello
+                 */
 
                 const newEntry =
                     `[${timestamp}]\n` +
@@ -581,14 +563,12 @@ async function sendMessage() {
 
 
                 // ------------------------------------------------
-                // STEP 4
-                // Prepare existing content
+                // EXISTING CONTENT
                 // ------------------------------------------------
 
                 let existingContent =
                     localMessagesContent ||
                     "";
-
 
                 if (
                     existingContent.trim()
@@ -603,8 +583,7 @@ async function sendMessage() {
 
 
                 // ------------------------------------------------
-                // STEP 5
-                // Add message
+                // NEW CONTENT
                 // ------------------------------------------------
 
                 const updatedContent =
@@ -614,8 +593,7 @@ async function sendMessage() {
 
 
                 // ------------------------------------------------
-                // STEP 6
-                // Save using CURRENT SHA
+                // SAVE TO GITHUB
                 // ------------------------------------------------
 
                 const result =
@@ -626,14 +604,8 @@ async function sendMessage() {
 
 
                 // ------------------------------------------------
-                // STEP 7
-                //
-                // IMPORTANT:
-                // Get the SHA returned by GitHub.
+                // SAVE NEW SHA
                 // ------------------------------------------------
-
-                let newSha = null;
-
 
                 if (
                     result &&
@@ -641,31 +613,10 @@ async function sendMessage() {
                     result.content.sha
                 ) {
 
-                    newSha =
-                        result.content.sha;
-                }
-
-
-                // ------------------------------------------------
-                // STEP 8
-                //
-                // If GitHub returned a new SHA,
-                // use it immediately.
-                // ------------------------------------------------
-
-                if (newSha) {
-
                     localMessagesSha =
-                        newSha;
+                        result.content.sha;
 
                 } else {
-
-                    /*
-                     * GitHub normally returns content.sha.
-                     *
-                     * If it doesn't, get the latest version
-                     * before another send.
-                     */
 
                     localMessagesSha =
                         null;
@@ -673,8 +624,7 @@ async function sendMessage() {
 
 
                 // ------------------------------------------------
-                // STEP 9
-                // Save current content locally
+                // SAVE NEW CONTENT LOCALLY
                 // ------------------------------------------------
 
                 localMessagesContent =
@@ -682,13 +632,20 @@ async function sendMessage() {
 
 
                 // ------------------------------------------------
-                // STEP 10
-                // Display message immediately
+                // UPDATE SCREEN
                 // ------------------------------------------------
 
                 displayMessagesFromContent(
                     localMessagesContent
                 );
+
+
+                // ------------------------------------------------
+                // CLEAR MESSAGE FIELD
+                // ------------------------------------------------
+
+                messageElement.value =
+                    "";
 
 
                 // ------------------------------------------------
@@ -698,11 +655,6 @@ async function sendMessage() {
                 setStatus(
                     "Message sent successfully."
                 );
-
-
-                messageElement.value =
-                    "";
-
 
                 return;
 
@@ -731,47 +683,35 @@ async function sendMessage() {
                         throw new Error(
                             "GitHub SHA conflict continued after " +
                             MAX_RETRIES +
-                            " attempts. Please refresh once and try again."
+                            " attempts. Please refresh and try again."
                         );
                     }
 
-
                     setStatus(
-                        "GitHub file changed. " +
-                        "Getting latest version... " +
-                        `(${attempt}/${MAX_RETRIES})`
+                        "Another message was added. " +
+                        "Getting latest version..."
                     );
 
 
-                    // ------------------------------------------------
-                    // Clear stale cache
-                    // ------------------------------------------------
+                    // Clear stale cache.
 
                     localMessagesContent =
                         null;
-
 
                     localMessagesSha =
                         null;
 
 
-                    // ------------------------------------------------
-                    // Wait before reading GitHub again
-                    // ------------------------------------------------
+                    // Wait.
 
                     await sleep(
                         1000 * attempt
                     );
 
 
-                    // ------------------------------------------------
-                    // IMPORTANT:
-                    //
-                    // Read the latest version again.
-                    // ------------------------------------------------
+                    // Get latest version.
 
                     await refreshLocalCache();
-
 
                     continue;
                 }
@@ -782,11 +722,6 @@ async function sendMessage() {
         }
 
 
-        throw new Error(
-            "Could not save message."
-        );
-
-
     } catch (error) {
 
         console.error(
@@ -794,14 +729,11 @@ async function sendMessage() {
             error
         );
 
-
         localMessagesContent =
             null;
 
-
         localMessagesSha =
             null;
-
 
         setStatus(
             `Error: ${error.message}`,
@@ -813,7 +745,6 @@ async function sendMessage() {
 
         isSending =
             false;
-
 
         if (button) {
 
@@ -835,7 +766,6 @@ async function fetchMessages() {
             "Enter Message View Passcode:"
         );
 
-
     if (
         password !==
         VIEW_PASSCODE
@@ -849,34 +779,30 @@ async function fetchMessages() {
         return;
     }
 
-
     if (!askForToken()) {
 
         return;
     }
 
-
     setStatus(
-        "Loading latest messages..."
+        "Loading messages..."
     );
-
 
     try {
 
         await displayMessagesFromGitHub();
 
-
         setStatus(
             "Messages loaded successfully."
         );
 
+        startAutoRefresh();
 
     } catch (error) {
 
         console.error(
             error
         );
-
 
         setStatus(
             `Error: ${error.message}`,
@@ -887,7 +813,102 @@ async function fetchMessages() {
 
 
 // ============================================================
-// DISPLAY MESSAGES FROM CONTENT
+// FORMAT DATE
+// ============================================================
+
+function formatTimestamp(
+    timestamp
+) {
+
+    const date =
+        new Date(
+            timestamp
+        );
+
+    if (
+        isNaN(
+            date.getTime()
+        )
+    ) {
+
+        return timestamp;
+    }
+
+
+    /*
+     * Display format:
+     *
+     * DD/MM/YYYY HH:MM:SS.milliseconds
+     *
+     * Example:
+     *
+     * 18/09/2026 04:00:46.573
+     *
+     * The time is displayed in the user's
+     * local timezone.
+     */
+
+    const day =
+        String(
+            date.getDate()
+        ).padStart(
+            2,
+            "0"
+        );
+
+    const month =
+        String(
+            date.getMonth() + 1
+        ).padStart(
+            2,
+            "0"
+        );
+
+    const year =
+        date.getFullYear();
+
+    const hours =
+        String(
+            date.getHours()
+        ).padStart(
+            2,
+            "0"
+        );
+
+    const minutes =
+        String(
+            date.getMinutes()
+        ).padStart(
+            2,
+            "0"
+        );
+
+    const seconds =
+        String(
+            date.getSeconds()
+        ).padStart(
+            2,
+            "0"
+        );
+
+    const milliseconds =
+        String(
+            date.getMilliseconds()
+        ).padStart(
+            3,
+            "0"
+        );
+
+    return (
+        `${day}/${month}/${year} ` +
+        `${hours}:${minutes}:${seconds}.` +
+        `${milliseconds}`
+    );
+}
+
+
+// ============================================================
+// DISPLAY MESSAGES
 // ============================================================
 
 function displayMessagesFromContent(
@@ -899,38 +920,14 @@ function displayMessagesFromContent(
             "messages"
         );
 
-
-    const messagesSection =
-        document.getElementById(
-            "messagesSection"
-        );
-
-
     if (!messagesContainer) {
 
-        throw new Error(
-            "Element with id='messages' was not found."
-        );
+        return;
     }
 
 
     // --------------------------------------------------------
-    // Show Messages section
-    // --------------------------------------------------------
-
-    if (messagesSection) {
-
-        messagesSection.hidden =
-            false;
-    }
-
-
-    messagesContainer.innerHTML =
-        "";
-
-
-    // --------------------------------------------------------
-    // No messages
+    // EMPTY
     // --------------------------------------------------------
 
     if (
@@ -938,30 +935,45 @@ function displayMessagesFromContent(
         !content.trim()
     ) {
 
-        messagesContainer.innerHTML =
-            "<p>No messages yet.</p>";
+        messagesContainer.innerHTML = `
+
+            <div class="empty-message">
+
+                <div class="empty-icon">
+                    💬
+                </div>
+
+                <h3>
+                    No messages yet
+                </h3>
+
+                <p>
+                    Be the first to send a message.
+                </p>
+
+            </div>
+
+        `;
 
         return;
     }
 
 
     // --------------------------------------------------------
-    // MESSAGE PARSER
+    // EXPECTED STORAGE FORMAT
     //
-    // Each timestamp starts a new message.
-    //
-    // Blank lines are NOT required.
+    // [2026-09-18T...]
+    // Sender: Rahul
+    // Message: Hello
     // --------------------------------------------------------
 
     const messagePattern =
         /\[([^\]]+)\]\s*\nSender:\s*(.*?)\s*\nMessage:\s*([\s\S]*?)(?=\n\[|$)/g;
 
-
-    const messages = [];
-
+    const messages =
+        [];
 
     let match;
-
 
     while (
         (
@@ -972,223 +984,304 @@ function displayMessagesFromContent(
         ) !== null
     ) {
 
-        const timestamp =
-            match[1].trim();
-
-
-        const sender =
-            match[2].trim();
-
-
-        const message =
-            match[3].trim();
-
-
         messages.push({
 
             timestamp:
-                timestamp,
+                match[1].trim(),
 
             sender:
-                sender ||
-                "Unknown",
+                match[2].trim(),
 
             message:
-                message
+                match[3].trim()
         });
     }
 
 
     // --------------------------------------------------------
-    // No valid messages
+    // NO VALID MESSAGES
     // --------------------------------------------------------
 
     if (
         messages.length === 0
     ) {
 
-        messagesContainer.innerHTML =
-            "<p>No messages found.</p>";
+        messagesContainer.innerHTML = `
+
+            <div class="empty-message">
+
+                <div class="empty-icon">
+                    💬
+                </div>
+
+                <h3>
+                    No messages found
+                </h3>
+
+            </div>
+
+        `;
 
         return;
     }
 
 
     // --------------------------------------------------------
-    // Newest message first
+    // NEWEST FIRST
     // --------------------------------------------------------
 
     messages.reverse();
 
 
     // --------------------------------------------------------
-    // DISPLAY
+    // MESSAGE BOX
+    // --------------------------------------------------------
+
+    const messageBox =
+        document.createElement(
+            "div"
+        );
+
+    messageBox.className =
+        "message-box";
+
+
+    // --------------------------------------------------------
+    // CREATE EACH MESSAGE
     // --------------------------------------------------------
 
     messages.forEach(
-        messageData => {
+        (messageData, index) => {
 
-            const card =
+            const messageBlock =
                 document.createElement(
                     "div"
                 );
 
+            messageBlock.className =
+                "message-block";
 
-            card.className =
-                "message-card";
 
+            // ------------------------------------------------
+            // TIMESTAMP
+            // ------------------------------------------------
 
-            // Sender
-
-            const senderElement =
+            const timestamp =
                 document.createElement(
                     "div"
                 );
 
+            timestamp.className =
+                "message-timestamp";
 
-            senderElement.className =
+            timestamp.textContent =
+                `date time -> [${formatTimestamp(
+                    messageData.timestamp
+                )}]`;
+
+
+            // ------------------------------------------------
+            // SENDER
+            // ------------------------------------------------
+
+            /*
+             * IMPORTANT:
+             *
+             * Sender is now a SPAN instead of DIV.
+             * This keeps sender and message on the
+             * SAME LINE.
+             *
+             * No ** characters are printed.
+             */
+
+            const sender =
+                document.createElement(
+                    "span"
+                );
+
+            sender.className =
                 "message-sender";
 
+            sender.textContent =
+                `${messageData.sender}: `;
 
-            senderElement.textContent =
-                messageData.sender;
 
+            // ------------------------------------------------
+            // MESSAGE
+            // ------------------------------------------------
 
-            // Message
+            /*
+             * Message is also a SPAN.
+             * Therefore it stays on the same line
+             * as the sender.
+             */
 
-            const messageElement =
+            const message =
                 document.createElement(
-                    "div"
+                    "span"
                 );
 
+            message.className =
+                "message-content";
 
-            messageElement.className =
-                "message-text";
-
-
-            messageElement.textContent =
+            message.textContent =
                 messageData.message;
 
 
-            // Time
+            // ------------------------------------------------
+            // ADD ELEMENTS
+            // ------------------------------------------------
 
-            const timeElement =
-                document.createElement(
-                    "div"
-                );
+            messageBlock.appendChild(
+                timestamp
+            );
+
+            messageBlock.appendChild(
+                sender
+            );
+
+            messageBlock.appendChild(
+                message
+            );
 
 
-            timeElement.className =
-                "message-time";
-
-
-            const date =
-                new Date(
-                    messageData.timestamp
-                );
-
+            // ------------------------------------------------
+            // SEPARATOR
+            // ------------------------------------------------
 
             if (
-                !isNaN(
-                    date.getTime()
-                )
+                index <
+                messages.length - 1
             ) {
 
-                timeElement.textContent =
-                    date.toLocaleString();
+                const separator =
+                    document.createElement(
+                        "hr"
+                    );
 
-            } else {
+                separator.className =
+                    "message-separator";
 
-                timeElement.textContent =
-                    messageData.timestamp;
+                messageBlock.appendChild(
+                    separator
+                );
             }
 
 
-            // Add elements
-
-            card.appendChild(
-                senderElement
-            );
-
-
-            card.appendChild(
-                messageElement
-            );
-
-
-            card.appendChild(
-                timeElement
-            );
-
-
-            messagesContainer.appendChild(
-                card
+            messageBox.appendChild(
+                messageBlock
             );
         }
+    );
+
+
+    // --------------------------------------------------------
+    // DISPLAY
+    // --------------------------------------------------------
+
+    messagesContainer.innerHTML =
+        "";
+
+    messagesContainer.appendChild(
+        messageBox
     );
 }
 
 
 // ============================================================
-// GET LATEST MESSAGES FROM GITHUB
+// GET LATEST FROM GITHUB
 // ============================================================
 
 async function displayMessagesFromGitHub() {
 
-    const messagesContainer =
-        document.getElementById(
-            "messages"
-        );
-
-
-    const messagesSection =
-        document.getElementById(
-            "messagesSection"
-        );
-
-
-    if (!messagesContainer) {
-
-        throw new Error(
-            "Element with id='messages' was not found."
-        );
-    }
-
-
-    if (messagesSection) {
-
-        messagesSection.hidden =
-            false;
-    }
-
-
-    // --------------------------------------------------------
-    // Get latest GitHub version
-    // --------------------------------------------------------
-
-    const data =
-        await getMessagesFile();
-
-
-    // --------------------------------------------------------
-    // Update local cache
-    // --------------------------------------------------------
-
-    localMessagesContent =
-        data.content;
-
-
-    localMessagesSha =
-        data.sha;
-
-
-    // --------------------------------------------------------
-    // Display
-    // --------------------------------------------------------
+    const latest =
+        await refreshLocalCache();
 
     displayMessagesFromContent(
-        localMessagesContent
+        latest.content
     );
+}
+
+
+// ============================================================
+// AUTOMATIC REFRESH
+// ============================================================
+
+async function autoRefreshMessages() {
+
+    // Don't refresh while sending.
+
+    if (isSending) {
+
+        return;
+    }
+
+
+    // Don't ask for token automatically.
+
+    if (!githubToken) {
+
+        return;
+    }
+
+    try {
+
+        const latest =
+            await getMessagesFile();
+
+        /*
+         * Only update the screen when GitHub's
+         * file SHA has changed.
+         */
+
+        if (
+            latest.sha !==
+            localMessagesSha
+        ) {
+
+            localMessagesContent =
+                latest.content;
+
+            localMessagesSha =
+                latest.sha;
+
+            displayMessagesFromContent(
+                latest.content
+            );
+        }
+
+    } catch (error) {
+
+        console.error(
+            "Automatic refresh failed:",
+            error
+        );
+    }
+}
+
+
+// ============================================================
+// START AUTO REFRESH
+// ============================================================
+
+function startAutoRefresh() {
+
+    if (autoRefreshTimer) {
+
+        clearInterval(
+            autoRefreshTimer
+        );
+    }
+
+    /*
+     * Check for new messages every 5 seconds.
+     */
+
+    autoRefreshTimer =
+        setInterval(
+            autoRefreshMessages,
+            5000
+        );
 }
 
 
@@ -1206,16 +1299,13 @@ function setStatus(
             "status"
         );
 
-
     if (!status) {
 
         return;
     }
 
-
     status.textContent =
         message;
-
 
     status.className =
         isError
@@ -1243,6 +1333,46 @@ function sleep(
 
 
 // ============================================================
+// ENTER KEY
+// ============================================================
+
+function setupEnterKey() {
+
+    const messageElement =
+        document.getElementById(
+            "message"
+        );
+
+    if (!messageElement) {
+
+        return;
+    }
+
+    messageElement.addEventListener(
+        "keydown",
+        event => {
+
+            /*
+             * Enter = Send
+             *
+             * Shift + Enter = New line
+             */
+
+            if (
+                event.key === "Enter" &&
+                !event.shiftKey
+            ) {
+
+                event.preventDefault();
+
+                sendMessage();
+            }
+        }
+    );
+}
+
+
+// ============================================================
 // INITIALIZE
 // ============================================================
 
@@ -1254,7 +1384,6 @@ document.addEventListener(
             document.getElementById(
                 "sendButton"
             );
-
 
         const fetchButton =
             document.getElementById(
@@ -1272,12 +1401,6 @@ document.addEventListener(
                 "click",
                 sendMessage
             );
-
-        } else {
-
-            console.error(
-                "sendButton not found in index.html"
-            );
         }
 
 
@@ -1291,12 +1414,20 @@ document.addEventListener(
                 "click",
                 fetchMessages
             );
-
-        } else {
-
-            console.error(
-                "fetchButton not found in index.html"
-            );
         }
+
+
+        // ----------------------------------------------------
+        // ENTER KEY
+        // ----------------------------------------------------
+
+        setupEnterKey();
+
+
+        // ----------------------------------------------------
+        // AUTO REFRESH
+        // ----------------------------------------------------
+
+        startAutoRefresh();
     }
 );
