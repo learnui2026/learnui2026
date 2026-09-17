@@ -1,3 +1,6 @@
+console.log("NEW SCRIPT VERSION 999 LOADED");
+alert("NEW SCRIPT VERSION 999 LOADED");
+
 const CONFIG = {
     owner: "learnui2026",
     repo: "learnui2026",
