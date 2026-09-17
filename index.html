@@ -1,44 +1,107 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Shared Message Box</title>
-  <link rel="stylesheet" href="style.css">
+    <meta charset="UTF-8">
+
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
+
+    <title>Shared Message App</title>
+
+    <link
+        rel="stylesheet"
+        href="style.css"
+    >
 </head>
+
 <body>
-<main class="card">
-  <h1>Shared Message Box</h1>
 
-  <div class="warning">
-    <strong>GitHub token required:</strong>
-    This GitHub Pages version writes directly to the repository using
-    the GitHub API. Each person who sends or fetches messages must provide
-    a GitHub token with access to this repository. Never put a token directly
-    into this website's source code.
-  </div>
+    <main class="container">
 
-  <label for="sender">Sender name</label>
-  <input id="sender" maxlength="80" placeholder="Enter your name">
+        <h1>Shared Message App</h1>
 
-  <label for="message">Message</label>
-  <textarea id="message" maxlength="2000"
-    placeholder="Write your message..."></textarea>
+        <div class="form-group">
 
- <button id="sendButton">Send Message</button>
+            <label for="sender">
+                Your Name
+            </label>
 
-  <hr>
+            <input
+                type="text"
+                id="sender"
+                placeholder="Enter your name"
+                autocomplete="off"
+            >
 
-<button id="fetchButton" class="green">Fetch All Messages</button>
+        </div>
 
-  <p id="status"></p>
 
-  <section id="messagesSection" hidden>
-    <h2>Messages</h2>
-    <div id="messages"></div>
-  </section>
-</main>
+        <div class="form-group">
 
-<script src="script.js?v=2"></script>
+            <label for="message">
+                Message
+            </label>
+
+            <textarea
+                id="message"
+                rows="5"
+                placeholder="Write your message..."
+            ></textarea>
+
+        </div>
+
+
+        <div class="button-group">
+
+            <button
+                id="sendButton"
+                type="button"
+            >
+                Send Message
+            </button>
+
+
+            <button
+                id="fetchButton"
+                type="button"
+                class="green"
+            >
+                Fetch All Messages
+            </button>
+
+        </div>
+
+
+        <div
+            id="status"
+            class="status"
+        ></div>
+
+
+        <section
+            id="messagesSection"
+            hidden
+        >
+
+            <h2>Messages</h2>
+
+            <div id="messages"></div>
+
+        </section>
+
+    </main>
+
+
+    <!--
+        ?v=2 prevents the browser from using an old cached
+        version of script.js.
+    -->
+
+    <script src="script.js?v=2"></script>
+
 </body>
+
 </html>
