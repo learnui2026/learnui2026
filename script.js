@@ -1,19 +1,3 @@
-/*
- * GitHub Pages + GitHub Contents API
- *
- * BEFORE USING:
- * 1. Set owner to your GitHub username.
- * 2. Set repo to your repository name.
- * 3. Make sure messages.txt exists in the repository.
- *
- * SECURITY:
- * This application intentionally does NOT contain a GitHub token.
- * The user must enter their own token when performing a GitHub API action.
- *
- * The token is kept only in this page's memory and is not written to
- * localStorage, sessionStorage, cookies, or the repository.
- */
-
 const CONFIG = {
   owner: "learnui2026",
   repo: "learnui2026",
@@ -21,48 +5,24 @@ const CONFIG = {
   file: "messages.txt"
 };
 
+// Basic client-side viewing passcode
+const VIEW_PASSCODE = "MySecret123";
+
 let githubToken = null;
 
-const senderInput = document.getElementById("sender");
-const messageInput = document.getElementById("message");
-const sendBtn = document.getElementById("sendBtn");
-const fetchBtn = document.getElementById("fetchBtn");
-const statusEl = document.getElementById("status");
-const messagesSection = document.getElementById("messagesSection");
-const messagesEl = document.getElementById("messages");
+// ----------------------------------------------------
+// GitHub API helpers
+// ----------------------------------------------------
 
-sendBtn.addEventListener("click", sendMessage);
-fetchBtn.addEventListener("click", fetchMessages);
-
-function setStatus(text, color = "") {
-  statusEl.textContent = text;
-  statusEl.style.color = color;
+function getApiUrl() {
+  return `https://api.github.com/repos/${CONFIG.owner}/${CONFIG.repo}/contents/${CONFIG.file}`;
 }
 
-function isConfigured() {
-  return CONFIG.owner !== "YOUR_GITHUB_USERNAME" &&
-         CONFIG.repo !== "YOUR_REPOSITORY";
-}
-
-function requestToken() {
-  if (githubToken) {
-    return githubToken;
+function getHeaders() {
+  if (!githubToken) {
+    throw new Error("GitHub token is required.");
   }
 
-  const token = prompt(
-    "Enter your GitHub token.\n\n" +
-    "Your token is used only for this browser session and is not stored."
-  );
-
-  if (!token) {
-    return null;
-  }
-
-  githubToken = token.trim();
-  return githubToken;
-}
-
-function apiHeaders() {
   return {
     "Accept": "application/vnd.github+json",
     "Authorization": `Bearer ${githubToken}`,
@@ -71,19 +31,19 @@ function apiHeaders() {
   };
 }
 
-function fileApiUrl() {
-  return (
-    `https://api.github.com/repos/` +
-    `${encodeURIComponent(CONFIG.owner)}/` +
-    `${encodeURIComponent(CONFIG.repo)}/contents/` +
-    `${encodeURIComponent(CONFIG.file)}`
-  );
+// Decode Base64 → UTF-8
+function decodeBase64Utf8(base64) {
+  const binary = atob(base64.replace(/\n/g, ""));
+  const bytes = Uint8Array.from(binary, char => char.charCodeAt(0));
+
+  return new TextDecoder("utf-8").decode(bytes);
 }
 
+// Encode UTF-8 → Base64
 function encodeBase64Utf8(text) {
   const bytes = new TextEncoder().encode(text);
-  let binary = "";
 
+  let binary = "";
   const chunkSize = 0x8000;
 
   for (let i = 0; i < bytes.length; i += chunkSize) {
@@ -95,284 +55,423 @@ function encodeBase64Utf8(text) {
   return btoa(binary);
 }
 
-function decodeBase64Utf8(base64) {
-  const binary = atob(base64.replace(/\s/g, ""));
+// ----------------------------------------------------
+// Ask for GitHub token
+// ----------------------------------------------------
 
-  const bytes = Uint8Array.from(
-    binary,
-    character => character.charCodeAt(0)
+function askForToken() {
+  if (githubToken) {
+    return true;
+  }
+
+  const token = prompt(
+    "Enter your GitHub Personal Access Token.\n\n" +
+    "The token must have access to learnui2026/learnui2026 " +
+    "with Contents/Code Read and Write permission."
   );
 
-  return new TextDecoder().decode(bytes);
+  if (!token || !token.trim()) {
+    setStatus("GitHub token is required.", true);
+    return false;
+  }
+
+  githubToken = token.trim();
+
+  return true;
 }
 
-async function readMessagesFile() {
+// ----------------------------------------------------
+// Get latest messages.txt
+// ----------------------------------------------------
 
-  const response = await fetch(
-    `${fileApiUrl()}?ref=${encodeURIComponent(CONFIG.branch)}`,
-    {
-      headers: apiHeaders()
-    }
-  );
+async function getMessagesFile() {
+  const url =
+    `${getApiUrl()}?ref=${encodeURIComponent(CONFIG.branch)}` +
+    `&_=${Date.now()}`;
 
-  if (response.status === 404) {
-    return {
-      exists: false,
-      sha: null,
-      content: ""
-    };
+  const response = await fetch(url, {
+    method: "GET",
+    headers: getHeaders(),
+    cache: "no-store"
+  });
+
+  if (!response.ok) {
+    let errorMessage = `GitHub error: ${response.status}`;
+
+    try {
+      const errorData = await response.json();
+
+      if (errorData.message) {
+        errorMessage += ` - ${errorData.message}`;
+      }
+    } catch (_) {}
+
+    throw new Error(errorMessage);
   }
 
   const data = await response.json();
 
-  if (!response.ok) {
-    throw new Error(
-      data.message || `GitHub API error: ${response.status}`
-    );
+  if (!data.content || !data.sha) {
+    throw new Error("messages.txt content or SHA was not returned by GitHub.");
   }
 
   return {
-    exists: true,
     sha: data.sha,
     content: decodeBase64Utf8(data.content)
   };
 }
 
-async function sendMessage() {
+// ----------------------------------------------------
+// Update messages.txt
+// ----------------------------------------------------
 
-  if (!isConfigured()) {
-    setStatus(
-      "Edit owner and repo in script.js first.",
-      "red"
+async function updateMessagesFile(content, sha) {
+  const body = {
+    message: "Add new message",
+    content: encodeBase64Utf8(content),
+    sha: sha,
+    branch: CONFIG.branch
+  };
+
+  const response = await fetch(getApiUrl(), {
+    method: "PUT",
+    headers: getHeaders(),
+    body: JSON.stringify(body)
+  });
+
+  let responseData = {};
+
+  try {
+    responseData = await response.json();
+  } catch (_) {}
+
+  if (!response.ok) {
+    const error = new Error(
+      responseData.message ||
+      `GitHub update failed: ${response.status}`
     );
-    return;
+
+    error.status = response.status;
+    error.githubMessage = responseData.message || "";
+
+    throw error;
   }
 
-  const sender = senderInput.value.trim();
-  const message = messageInput.value.trim();
+  return responseData;
+}
+
+// ----------------------------------------------------
+// Send message with automatic SHA retry
+// ----------------------------------------------------
+
+async function sendMessage() {
+  const senderElement = document.getElementById("sender");
+  const messageElement = document.getElementById("message");
+
+  const sender = senderElement.value.trim();
+  const message = messageElement.value.trim();
 
   if (!sender) {
-    setStatus("Please enter the sender name.", "red");
+    setStatus("Please enter your name.", true);
     return;
   }
 
   if (!message) {
-    setStatus("Please enter a message.", "red");
+    setStatus("Please enter a message.", true);
     return;
   }
 
-  const token = requestToken();
-
-  if (!token) {
-    setStatus("GitHub token is required.", "red");
+  if (!askForToken()) {
     return;
   }
 
-  sendBtn.disabled = true;
+  const button = document.getElementById("sendButton");
+
+  if (button) {
+    button.disabled = true;
+  }
+
+  setStatus("Sending message...");
+
+  /*
+   * Try up to 5 times.
+   *
+   * Every attempt gets the CURRENT SHA from GitHub.
+   * If another person updates messages.txt between
+   * our GET and PUT, we fetch it again and retry.
+   */
+  const MAX_RETRIES = 5;
 
   try {
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
 
-    setStatus("Reading messages.txt...", "black");
+      try {
+        // IMPORTANT:
+        // Always get the latest version immediately before updating.
+        const latest = await getMessagesFile();
 
-    const file = await readMessagesFile();
+        const timestamp = new Date().toISOString();
 
-    const now = new Date();
+        const newEntry =
+          `[${timestamp}]\n` +
+          `Sender: ${sender}\n` +
+          `Message: ${message}\n\n`;
 
-    const line =
-      `[${now.toISOString()}]\n` +
-      `Sender: ${sender.replace(/\r?\n/g, " ")}\n` +
-      `Message: ${message}\n\n`;
+        const updatedContent =
+          latest.content +
+          newEntry;
 
-    const newContent = file.content + line;
+        await updateMessagesFile(
+          updatedContent,
+          latest.sha
+        );
 
-    const body = {
-      message: `Add message from ${sender}`,
-      content: encodeBase64Utf8(newContent),
-      branch: CONFIG.branch
-    };
+        setStatus("Message sent successfully.");
 
-    if (file.exists) {
-      body.sha = file.sha;
-    }
+        messageElement.value = "";
 
-    setStatus("Saving message to GitHub...", "black");
+        // Refresh displayed messages if available
+        try {
+          await displayMessagesFromGitHub();
+        } catch (_) {}
 
-    const response = await fetch(
-      fileApiUrl(),
-      {
-        method: "PUT",
-        headers: apiHeaders(),
-        body: JSON.stringify(body)
+        return;
+
+      } catch (error) {
+
+        const isShaConflict =
+          error.status === 409 ||
+          error.status === 422 ||
+          (
+            error.githubMessage &&
+            error.githubMessage.toLowerCase().includes("does not match")
+          );
+
+        if (isShaConflict && attempt < MAX_RETRIES) {
+
+          setStatus(
+            `Another message was added. Updating and retrying... (${attempt}/${MAX_RETRIES})`
+          );
+
+          // Small delay before retry
+          await sleep(500 * attempt);
+
+          continue;
+        }
+
+        throw error;
       }
-    );
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      throw new Error(
-        data.message || `GitHub API error: ${response.status}`
-      );
     }
 
-    messageInput.value = "";
-
-    setStatus(
-      "Message saved successfully.",
-      "green"
+    throw new Error(
+      "Could not update messages.txt after several attempts."
     );
 
   } catch (error) {
 
     console.error(error);
 
-    // A 401 normally means the token is invalid/expired.
-    if (error.message.toLowerCase().includes("bad credentials")) {
-      githubToken = null;
-    }
-
     setStatus(
       `Error: ${error.message}`,
-      "red"
+      true
     );
 
   } finally {
 
-    sendBtn.disabled = false;
-
+    if (button) {
+      button.disabled = false;
+    }
   }
 }
+
+// ----------------------------------------------------
+// Fetch all messages
+// ----------------------------------------------------
 
 async function fetchMessages() {
 
-  if (!isConfigured()) {
-    setStatus(
-      "Edit owner and repo in script.js first.",
-      "red"
-    );
-    return;
-  }
-
   const password = prompt(
-    "Enter the message-view password:"
+    "Enter Message View Passcode:"
   );
 
-  if (password === null) {
+  if (password !== VIEW_PASSCODE) {
+    setStatus("Incorrect view passcode.", true);
     return;
   }
 
-  /*
-   * IMPORTANT:
-   * This password check is client-side and therefore NOT a secure
-   * authentication mechanism. Anyone who can inspect this JavaScript
-   * can discover the password.
-   *
-   * The GitHub token is the actual repository access credential.
-   */
-  const VIEW_PASSWORD = "MySecret123";
-
-  if (password !== VIEW_PASSWORD) {
-    setStatus("Incorrect password.", "red");
+  if (!askForToken()) {
     return;
   }
 
-  const token = requestToken();
-
-  if (!token) {
-    setStatus("GitHub token is required.", "red");
-    return;
-  }
-
-  fetchBtn.disabled = true;
+  setStatus("Loading messages...");
 
   try {
 
-    setStatus("Fetching messages.txt...", "black");
+    await displayMessagesFromGitHub();
 
-    const file = await readMessagesFile();
-
-    messagesSection.hidden = false;
-
-    renderMessages(file.content);
-
-    setStatus("Messages loaded.", "green");
+    setStatus("Messages loaded successfully.");
 
   } catch (error) {
 
     console.error(error);
 
-    if (error.message.toLowerCase().includes("bad credentials")) {
-      githubToken = null;
-    }
-
     setStatus(
       `Error: ${error.message}`,
-      "red"
+      true
     );
-
-  } finally {
-
-    fetchBtn.disabled = false;
-
   }
 }
 
-function renderMessages(content) {
+// ----------------------------------------------------
+// Display messages
+// ----------------------------------------------------
 
-  messagesEl.innerHTML = "";
+async function displayMessagesFromGitHub() {
 
-  if (!content.trim()) {
-    messagesEl.textContent = "No messages yet.";
+  const data = await getMessagesFile();
+
+  const messagesContainer =
+    document.getElementById("messages");
+
+  if (!messagesContainer) {
+    return;
+  }
+
+  messagesContainer.innerHTML = "";
+
+  const content = data.content.trim();
+
+  if (!content) {
+    messagesContainer.innerHTML =
+      "<p>No messages yet.</p>";
+
     return;
   }
 
   const blocks = content
-    .trim()
-    .split(/\n\s*\n/);
+    .split(/\n\s*\n/)
+    .map(block => block.trim())
+    .filter(Boolean);
+
+  /*
+   * Expected format:
+   *
+   * [2026-09-18T...]
+   * Sender: Rahul
+   * Message: Hello
+   */
 
   blocks.forEach(block => {
 
     const lines = block.split("\n");
 
-    let time = "";
+    let timestamp = "";
     let sender = "";
     let message = "";
 
-    lines.forEach(line => {
+    for (const line of lines) {
 
-      if (line.startsWith("[")) {
-        time = line.replace(/^\[|\]$/g, "");
-      } else if (line.startsWith("Sender:")) {
-        sender = line.substring("Sender:".length).trim();
-      } else if (line.startsWith("Message:")) {
-        message = line.substring("Message:".length).trim();
+      if (line.startsWith("[") && line.endsWith("]")) {
+        timestamp = line.substring(1, line.length - 1);
       }
 
-    });
+      else if (line.startsWith("Sender:")) {
+        sender = line.substring("Sender:".length).trim();
+      }
 
-    const box = document.createElement("div");
-    box.className = "message";
+      else if (line.startsWith("Message:")) {
+        message = line.substring("Message:".length).trim();
+      }
+    }
+
+    if (!sender && !message) {
+      return;
+    }
+
+    const card = document.createElement("div");
+    card.className = "message-card";
 
     const senderElement = document.createElement("div");
-    senderElement.className = "sender";
-    senderElement.textContent =
-      `Sender: ${sender || "Unknown"}`;
+    senderElement.className = "message-sender";
+    senderElement.textContent = sender || "Unknown";
 
     const messageElement = document.createElement("div");
-    messageElement.className = "messageText";
+    messageElement.className = "message-text";
     messageElement.textContent = message;
 
     const timeElement = document.createElement("div");
-    timeElement.className = "time";
-    timeElement.textContent = time
-      ? new Date(time).toLocaleString()
-      : "";
+    timeElement.className = "message-time";
 
-    box.append(
-      senderElement,
-      messageElement,
-      timeElement
-    );
+    if (timestamp) {
+      const date = new Date(timestamp);
 
-    messagesEl.appendChild(box);
+      if (!isNaN(date.getTime())) {
+        timeElement.textContent =
+          date.toLocaleString();
+      } else {
+        timeElement.textContent = timestamp;
+      }
+    }
+
+    card.appendChild(senderElement);
+    card.appendChild(messageElement);
+    card.appendChild(timeElement);
+
+    messagesContainer.appendChild(card);
   });
 }
+
+// ----------------------------------------------------
+// Status message
+// ----------------------------------------------------
+
+function setStatus(message, isError = false) {
+
+  const status = document.getElementById("status");
+
+  if (!status) {
+    return;
+  }
+
+  status.textContent = message;
+
+  status.className =
+    isError ? "status error" : "status";
+}
+
+// ----------------------------------------------------
+// Utility
+// ----------------------------------------------------
+
+function sleep(milliseconds) {
+  return new Promise(resolve =>
+    setTimeout(resolve, milliseconds)
+  );
+}
+
+// ----------------------------------------------------
+// Button event handlers
+// ----------------------------------------------------
+
+document.addEventListener("DOMContentLoaded", () => {
+
+  const sendButton =
+    document.getElementById("sendButton");
+
+  const fetchButton =
+    document.getElementById("fetchButton");
+
+  if (sendButton) {
+    sendButton.addEventListener(
+      "click",
+      sendMessage
+    );
+  }
+
+  if (fetchButton) {
+    fetchButton.addEventListener(
+      "click",
+      fetchMessages
+    );
+  }
+});
