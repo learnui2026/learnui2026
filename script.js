@@ -1431,3 +1431,113 @@ document.addEventListener(
         startAutoRefresh();
     }
 );
+
+/* ============================================================
+   MOBILE TYPING MODE
+============================================================ */
+
+(function () {
+
+    const messageInput =
+        document.getElementById("message");
+
+    if (!messageInput) {
+        return;
+    }
+
+    const isMobile = () => {
+        return window.matchMedia("(max-width: 800px)").matches;
+    };
+
+    function enableMobileTypingMode() {
+
+        if (!isMobile()) {
+            return;
+        }
+
+        document.body.classList.add("mobile-typing");
+
+        setTimeout(() => {
+
+            const messagesArea =
+                document.querySelector(".messages-area");
+
+            if (messagesArea) {
+
+                messagesArea.scrollTop =
+                    messagesArea.scrollHeight;
+            }
+
+        }, 150);
+    }
+
+    function disableMobileTypingMode() {
+
+        document.body.classList.remove("mobile-typing");
+    }
+
+    messageInput.addEventListener(
+        "focus",
+        function () {
+
+            enableMobileTypingMode();
+
+        }
+    );
+
+    messageInput.addEventListener(
+        "input",
+        function () {
+
+            if (isMobile()) {
+
+                document.body.classList.add(
+                    "mobile-typing"
+                );
+            }
+
+        }
+    );
+
+    if (window.visualViewport) {
+
+        let previousHeight =
+            window.visualViewport.height;
+
+        window.visualViewport.addEventListener(
+            "resize",
+            function () {
+
+                const currentHeight =
+                    window.visualViewport.height;
+
+                if (
+                    currentHeight <
+                    previousHeight - 100
+                ) {
+
+                    if (
+                        document.activeElement ===
+                        messageInput
+                    ) {
+
+                        enableMobileTypingMode();
+                    }
+                }
+
+                if (
+                    currentHeight >
+                    previousHeight + 100
+                ) {
+
+                    disableMobileTypingMode();
+                }
+
+                previousHeight =
+                    currentHeight;
+
+            }
+        );
+    }
+
+})();
