@@ -916,3 +916,17 @@ textarea {
             2px 0;
     }
 }
+.meet-button {
+    display: inline-block;
+    padding: 12px 20px;
+    background: #1a73e8;
+    color: white;
+    text-decoration: none;
+    border-radius: 8px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.meet-button:hover {
+    opacity: 0.9;
+}
