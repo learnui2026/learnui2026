@@ -1,7 +1,7 @@
 const CONFIG = {
     owner: "learnui2026",
     repo: "learnui2026",
-    branch: "main",
+    branch: "message",
     file: "messages.txt"
 };
 
