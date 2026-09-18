@@ -1,7 +1,3 @@
-// ============================================================
-// CONFIGURATION
-// ============================================================
-
 const CONFIG = {
     owner: "learnui2026",
     repo: "learnui2026",
@@ -9,239 +5,128 @@ const CONFIG = {
     file: "messages.txt"
 };
 
+
 // ============================================================
 // VIEW PASSCODE
 // ============================================================
 
-const VIEW_PASSCODE = "MySecret123";
+const VIEW_PASSCODE =
+    "MySecret123";
+
 
 // ============================================================
 // GLOBAL VARIABLES
 // ============================================================
 
-let githubToken = null;
-let currentSha = null;
-let autoRefreshInterval = null;
-let isSending = false;
+let githubToken =
+    null;
 
-// ============================================================
-// DOM ELEMENTS
-// ============================================================
+let localMessagesContent =
+    null;
 
-let senderInput;
-let messageInput;
-let sendButton;
-let fetchButton;
-let statusElement;
-let messagesContainer;
+let localMessagesSha =
+    null;
 
-// ============================================================
-// INITIALIZATION
-// ============================================================
+let isSending =
+    false;
 
-document.addEventListener("DOMContentLoaded", function () {
+let autoRefreshTimer =
+    null;
 
-    senderInput = document.getElementById("sender");
-    messageInput = document.getElementById("message");
-    sendButton = document.getElementById("sendButton");
-    fetchButton = document.getElementById("fetchButton");
-    statusElement = document.getElementById("status");
-    messagesContainer = document.getElementById("messages");
-
-    if (sendButton) {
-        sendButton.addEventListener("click", sendMessage);
-    }
-
-    if (fetchButton) {
-        fetchButton.addEventListener("click", function () {
-            fetchMessages(true);
-        });
-    }
-
-    // Allow Ctrl + Enter to send
-    if (messageInput) {
-        messageInput.addEventListener("keydown", function (event) {
-
-            if (event.key === "Enter" && event.ctrlKey) {
-                event.preventDefault();
-                sendMessage();
-            }
-
-        });
-    }
-
-    // Ask for passcode when page opens
-    initializeViewAccess();
-
-    // Start automatic refresh
-    startAutoRefresh();
-});
-
-// ============================================================
-// VIEW ACCESS
-// ============================================================
-
-function initializeViewAccess() {
-
-    const enteredPasscode = prompt(
-        "Enter passcode to view messages:"
-    );
-
-    if (enteredPasscode !== VIEW_PASSCODE) {
-
-        alert("Incorrect passcode.");
-
-        if (messagesContainer) {
-            messagesContainer.innerHTML = `
-                <div class="empty-message">
-                    <div class="empty-icon">🔒</div>
-                    <h3>Access Denied</h3>
-                    <p>Incorrect passcode.</p>
-                </div>
-            `;
-        }
-
-        return;
-    }
-
-    fetchMessages(false);
-}
-
-// ============================================================
-// GITHUB TOKEN
-// ============================================================
-
-function getGithubToken() {
-
-    if (githubToken) {
-        return githubToken;
-    }
-
-    const token = prompt(
-        "Enter your GitHub Personal Access Token:"
-    );
-
-    if (!token || !token.trim()) {
-        throw new Error("GitHub token is required.");
-    }
-
-    githubToken = token.trim();
-
-    return githubToken;
-}
 
 // ============================================================
 // GITHUB API URL
 // ============================================================
 
-function getGithubApiUrl() {
+function getApiUrl() {
 
     return (
-        "https://api.github.com/repos/" +
-        encodeURIComponent(CONFIG.owner) +
-        "/" +
-        encodeURIComponent(CONFIG.repo) +
-        "/contents/" +
-        CONFIG.file
+        `https://api.github.com/repos/` +
+        `${CONFIG.owner}/` +
+        `${CONFIG.repo}/` +
+        `contents/${CONFIG.file}`
     );
 }
+
 
 // ============================================================
 // GITHUB HEADERS
 // ============================================================
 
-function getGithubHeaders() {
+function getHeaders() {
 
-    const token = getGithubToken();
-
-    return {
-        "Accept": "application/vnd.github+json",
-        "Authorization": "Bearer " + token,
-        "X-GitHub-Api-Version": "2022-11-28",
-        "Content-Type": "application/json"
-    };
-}
-
-// ============================================================
-// FETCH FILE FROM GITHUB
-// ============================================================
-
-async function getGithubFile() {
-
-    const url =
-        getGithubApiUrl() +
-        "?ref=" +
-        encodeURIComponent(CONFIG.branch) +
-        "&_=" +
-        Date.now();
-
-    const response = await fetch(url, {
-        method: "GET",
-        headers: getGithubHeaders(),
-        cache: "no-store"
-    });
-
-    if (!response.ok) {
-
-        let errorText = "";
-
-        try {
-            const errorData = await response.json();
-            errorText = errorData.message || "";
-        } catch (e) {
-            errorText = await response.text();
-        }
+    if (!githubToken) {
 
         throw new Error(
-            "GitHub GET failed (" +
-            response.status +
-            "): " +
-            errorText
+            "GitHub token is required."
         );
     }
 
-    const data = await response.json();
+    return {
 
-    return data;
+        "Accept":
+            "application/vnd.github+json",
+
+        "Authorization":
+            `Bearer ${githubToken}`,
+
+        "X-GitHub-Api-Version":
+            "2022-11-28",
+
+        "Content-Type":
+            "application/json"
+    };
 }
 
-// ============================================================
-// DECODE GITHUB CONTENT
-// ============================================================
-
-function decodeGithubContent(content) {
-
-    if (!content) {
-        return "";
-    }
-
-    // GitHub returns Base64 content
-    const binaryString = atob(
-        content.replace(/\s/g, "")
-    );
-
-    const bytes = Uint8Array.from(
-        binaryString,
-        function (char) {
-            return char.charCodeAt(0);
-        }
-    );
-
-    return new TextDecoder("utf-8").decode(bytes);
-}
 
 // ============================================================
-// ENCODE CONTENT FOR GITHUB
+// BASE64 DECODE
 // ============================================================
 
-function encodeGithubContent(content) {
+function decodeBase64Utf8(
+    base64
+) {
+
+    const clean =
+        base64.replace(
+            /\n/g,
+            ""
+        );
+
+    const binary =
+        atob(clean);
 
     const bytes =
-        new TextEncoder().encode(content);
+        Uint8Array.from(
+            binary,
+            char =>
+                char.charCodeAt(0)
+        );
 
-    let binary = "";
+    return new TextDecoder(
+        "utf-8"
+    ).decode(bytes);
+}
 
-    const chunkSize = 0x8000;
+
+// ============================================================
+// BASE64 ENCODE
+// ============================================================
+
+function encodeBase64Utf8(
+    text
+) {
+
+    const bytes =
+        new TextEncoder().encode(
+            text
+        );
+
+    let binary =
+        "";
+
+    const chunkSize =
+        0x8000;
 
     for (
         let i = 0;
@@ -249,224 +134,275 @@ function encodeGithubContent(content) {
         i += chunkSize
     ) {
 
-        const chunk =
-            bytes.subarray(
-                i,
-                Math.min(i + chunkSize, bytes.length)
+        binary +=
+            String.fromCharCode(
+                ...bytes.subarray(
+                    i,
+                    i + chunkSize
+                )
             );
-
-        binary += String.fromCharCode(...chunk);
     }
 
     return btoa(binary);
 }
 
+
 // ============================================================
-// FETCH ALL MESSAGES
+// ASK FOR GITHUB TOKEN
 // ============================================================
 
-async function fetchMessages(showStatus = true) {
+function askForToken() {
+
+    if (githubToken) {
+
+        return true;
+    }
+
+    const token =
+        prompt(
+            "Enter your GitHub Personal Access Token.\n\n" +
+            "Repository: learnui2026/learnui2026\n" +
+            "Permission required: Contents / Code Read and Write"
+        );
+
+    if (
+        !token ||
+        !token.trim()
+    ) {
+
+        setStatus(
+            "GitHub token is required.",
+            true
+        );
+
+        return false;
+    }
+
+    githubToken =
+        token.trim();
+
+    return true;
+}
+
+
+// ============================================================
+// GET messages.txt
+// ============================================================
+
+async function getMessagesFile() {
+
+    if (!askForToken()) {
+        throw new Error(
+            "GitHub token is required."
+        );
+    }
+
+    const url =
+        getApiUrl() +
+
+        `?ref=${encodeURIComponent(
+            CONFIG.branch
+        )}` +
+
+        `&_=${Date.now()}`;
+
+    const response =
+        await fetch(
+            url,
+            {
+                method:
+                    "GET",
+
+                headers:
+                    getHeaders(),
+
+                cache:
+                    "no-store"
+            }
+        );
+
+    if (!response.ok) {
+
+        let errorMessage =
+            `GitHub error: ${response.status}`;
+
+        try {
+
+            const errorData =
+                await response.json();
+
+            if (
+                errorData.message
+            ) {
+
+                errorMessage +=
+                    ` - ${errorData.message}`;
+            }
+
+        } catch (_) {}
+
+        throw new Error(
+            errorMessage
+        );
+    }
+
+    const data =
+        await response.json();
+
+    if (
+        !data.content ||
+        !data.sha
+    ) {
+
+        throw new Error(
+            "GitHub did not return messages.txt content or SHA."
+        );
+    }
+
+    return {
+
+        sha:
+            data.sha,
+
+        content:
+            decodeBase64Utf8(
+                data.content
+            )
+    };
+}
+
+
+// ============================================================
+// UPDATE messages.txt
+// ============================================================
+
+async function updateMessagesFile(
+    content,
+    sha
+) {
+
+    const body = {
+
+        message:
+            "Add message",
+
+        content:
+            encodeBase64Utf8(
+                content
+            ),
+
+        sha:
+            sha,
+
+        branch:
+            CONFIG.branch
+    };
+
+    const response =
+        await fetch(
+            getApiUrl(),
+            {
+                method:
+                    "PUT",
+
+                headers:
+                    getHeaders(),
+
+                body:
+                    JSON.stringify(
+                        body
+                    )
+            }
+        );
+
+    let responseData =
+        {};
 
     try {
 
-        if (showStatus) {
-            setStatus("Fetching messages...", "loading");
-        }
+        responseData =
+            await response.json();
 
-        const fileData = await getGithubFile();
+    } catch (_) {}
 
-        currentSha = fileData.sha;
+    if (!response.ok) {
 
-        const content =
-            decodeGithubContent(fileData.content);
-
-        displayMessagesFromContent(content);
-
-        if (showStatus) {
-            setStatus(
-                "Messages updated.",
-                "success"
+        const error =
+            new Error(
+                responseData.message ||
+                `GitHub update failed: ${response.status}`
             );
-        }
 
-    } catch (error) {
+        error.status =
+            response.status;
 
-        console.error("Fetch messages error:", error);
+        error.githubMessage =
+            responseData.message ||
+            "";
 
-        setStatus(
-            "Error: " + error.message,
-            "error"
-        );
-
+        throw error;
     }
+
+    return responseData;
 }
 
+
 // ============================================================
-// DISPLAY MESSAGES
+// SHA CONFLICT CHECK
 // ============================================================
 
-function displayMessagesFromContent(content) {
+function isShaConflict(
+    error
+) {
 
-    if (!messagesContainer) {
-        return;
+    if (!error) {
+
+        return false;
     }
 
-    if (!content || !content.trim()) {
+    if (
+        error.status === 409 ||
+        error.status === 422
+    ) {
 
-        messagesContainer.innerHTML = `
-            <div class="empty-message">
-                <div class="empty-icon">💬</div>
-                <h3>No messages yet</h3>
-                <p>Send the first message.</p>
-            </div>
-        `;
-
-        return;
+        return true;
     }
 
-    const messages = [];
+    if (
+        error.githubMessage &&
 
-    /*
-        Expected format:
+        error.githubMessage
+            .toLowerCase()
+            .includes(
+                "does not match"
+            )
+    ) {
 
-        [18/09/2026 04:05:25.783]
-        Sender: Bishnu
-        Message: Aur batw
-
-        [18/09/2026 04:05:17.551]
-        Sender: Bishnu
-        Message: tum kaise ho
-    */
-
-    const messagePattern =
-        /\[([^\]]+)\]\s*\nSender:\s*(.*?)\s*\nMessage:\s*([\s\S]*?)(?=\n\[|$)/g;
-
-    let match;
-
-    while ((match = messagePattern.exec(content)) !== null) {
-
-        messages.push({
-            timestamp: match[1].trim(),
-            sender: match[2].trim(),
-            message: match[3].trim()
-        });
+        return true;
     }
 
-    // Fallback parser if required
-    if (messages.length === 0) {
-
-        const blocks =
-            content.split(/\n(?=\[)/);
-
-        blocks.forEach(function (block) {
-
-            const timestampMatch =
-                block.match(/^\[([^\]]+)\]/);
-
-            const senderMatch =
-                block.match(/Sender:\s*(.*)/);
-
-            const messageMatch =
-                block.match(
-                    /Message:\s*([\s\S]*)/
-                );
-
-            if (
-                timestampMatch &&
-                senderMatch &&
-                messageMatch
-            ) {
-
-                messages.push({
-                    timestamp:
-                        timestampMatch[1].trim(),
-
-                    sender:
-                        senderMatch[1].trim(),
-
-                    message:
-                        messageMatch[1].trim()
-                });
-            }
-        });
-    }
-
-    // Newest message first
-    messages.reverse();
-
-    if (messages.length === 0) {
-
-        messagesContainer.innerHTML = `
-            <div class="empty-message">
-                <div class="empty-icon">💬</div>
-                <h3>No messages found</h3>
-                <p>Messages could not be parsed.</p>
-            </div>
-        `;
-
-        return;
-    }
-
-    let html = "";
-
-    messages.forEach(function (item, index) {
-
-        html += `
-            <div class="message-box">
-                <div class="message-block">
-
-                    <div class="message-timestamp">
-                        [${escapeHtml(item.timestamp)}]
-                    </div>
-
-                    <div class="message-line">
-                        <span class="message-sender">
-                            ${escapeHtml(item.sender)}:
-                        </span>
-
-                        <span class="message-content">
-                            ${formatMessage(item.message)}
-                        </span>
-                    </div>
-
-                </div>
-            </div>
-        `;
-
-        if (index < messages.length - 1) {
-
-            html += `
-                <hr class="message-separator">
-            `;
-        }
-    });
-
-    messagesContainer.innerHTML = html;
+    return false;
 }
 
+
 // ============================================================
-// FORMAT MESSAGE
+// REFRESH LOCAL CACHE
 // ============================================================
 
-function formatMessage(message) {
+async function refreshLocalCache() {
 
-    return escapeHtml(message)
-        .replace(/\n/g, "<br>");
+    const latest =
+        await getMessagesFile();
+
+    localMessagesContent =
+        latest.content;
+
+    localMessagesSha =
+        latest.sha;
+
+    return latest;
 }
 
-// ============================================================
-// HTML ESCAPE
-// ============================================================
-
-function escapeHtml(value) {
-
-    return String(value)
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;")
-        .replace(/'/g, "&#039;");
-}
 
 // ============================================================
 // SEND MESSAGE
@@ -474,30 +410,59 @@ function escapeHtml(value) {
 
 async function sendMessage() {
 
+    // Prevent multiple sends at exactly the same time.
+
     if (isSending) {
+
+        setStatus(
+            "Please wait. Message is being sent..."
+        );
+
+        return;
+    }
+
+    const senderElement =
+        document.getElementById(
+            "sender"
+        );
+
+    const messageElement =
+        document.getElementById(
+            "message"
+        );
+
+    if (
+        !senderElement ||
+        !messageElement
+    ) {
+
+        setStatus(
+            "Sender or message field not found.",
+            true
+        );
+
         return;
     }
 
     const sender =
-        senderInput
-            ? senderInput.value.trim()
-            : "";
+        senderElement.value.trim();
 
     const message =
-        messageInput
-            ? messageInput.value.trim()
-            : "";
+        messageElement.value.trim();
+
+
+    // --------------------------------------------------------
+    // VALIDATION
+    // --------------------------------------------------------
 
     if (!sender) {
 
         setStatus(
             "Please enter your name.",
-            "error"
+            true
         );
 
-        if (senderInput) {
-            senderInput.focus();
-        }
+        senderElement.focus();
 
         return;
     }
@@ -506,518 +471,963 @@ async function sendMessage() {
 
         setStatus(
             "Please enter a message.",
-            "error"
+            true
         );
 
-        if (messageInput) {
-            messageInput.focus();
-        }
+        messageElement.focus();
 
         return;
     }
 
-    isSending = true;
 
-    if (sendButton) {
-        sendButton.disabled = true;
+    // --------------------------------------------------------
+    // TOKEN
+    // --------------------------------------------------------
+
+    if (!askForToken()) {
+
+        return;
+    }
+
+
+    const button =
+        document.getElementById(
+            "sendButton"
+        );
+
+    isSending =
+        true;
+
+    if (button) {
+
+        button.disabled =
+            true;
     }
 
     setStatus(
-        "Sending message...",
-        "loading"
+        "Sending message..."
     );
+
+
+    const MAX_RETRIES =
+        8;
+
 
     try {
 
-        /*
-            We fetch the latest file immediately before writing.
-            This prevents SHA mismatch when another message was
-            added since the previous fetch.
-        */
-
-        const latestFile =
-            await getGithubFile();
-
-        const latestContent =
-            decodeGithubContent(
-                latestFile.content
-            );
-
-        const latestSha =
-            latestFile.sha;
-
-        // Create timestamp
-        const now = new Date();
-
-        const timestamp =
-            formatTimestamp(now);
-
-        // Create new message
-        const newEntry =
-            `[${timestamp}]\n` +
-            `Sender: ${sender}\n` +
-            `Message: ${message}\n`;
-
-        let updatedContent = latestContent;
-
-        if (
-            updatedContent &&
-            !updatedContent.endsWith("\n")
-        ) {
-            updatedContent += "\n";
-        }
-
-        if (updatedContent.trim()) {
-            updatedContent += "\n";
-        }
-
-        updatedContent += newEntry;
-
-        // Save to GitHub
-        const result =
-            await updateGithubFile(
-                updatedContent,
-                latestSha,
-                "Add new message"
-            );
-
-        currentSha = result.content.sha;
-
-        // Clear message field
-        if (messageInput) {
-            messageInput.value = "";
-            messageInput.style.height = "42px";
-        }
-
-        // Display immediately
-        displayMessagesFromContent(
-            updatedContent
-        );
-
-        setStatus(
-            "Message sent successfully.",
-            "success"
-        );
-
-    } catch (error) {
-
-        console.error("Send message error:", error);
-
-        /*
-            If SHA conflict happens, fetch latest version and retry.
-        */
-
-        if (
-            error.message &&
-            (
-                error.message.includes("does not match") ||
-                error.message.includes("409") ||
-                error.message.includes("sha")
-            )
+        for (
+            let attempt = 1;
+            attempt <= MAX_RETRIES;
+            attempt++
         ) {
 
             try {
 
-                setStatus(
-                    "Updating latest messages and retrying...",
-                    "loading"
-                );
+                // ------------------------------------------------
+                // GET CURRENT VERSION IF NEEDED
+                // ------------------------------------------------
 
-                const latestFile =
-                    await getGithubFile();
+                if (
+                    localMessagesContent === null ||
+                    localMessagesSha === null
+                ) {
 
-                const latestContent =
-                    decodeGithubContent(
-                        latestFile.content
-                    );
+                    await refreshLocalCache();
+                }
+
+
+                // ------------------------------------------------
+                // CREATE TIMESTAMP
+                // ------------------------------------------------
 
                 const timestamp =
-                    formatTimestamp(
-                        new Date()
-                    );
+                    new Date().toISOString();
+
+
+                // ------------------------------------------------
+                // CREATE MESSAGE
+                // ------------------------------------------------
+
+                /*
+                 * Storage format in messages.txt:
+                 *
+                 * [2026-09-18T...]
+                 * Sender: Bishnu Kumar
+                 * Message: Hello
+                 */
 
                 const newEntry =
                     `[${timestamp}]\n` +
                     `Sender: ${sender}\n` +
                     `Message: ${message}\n`;
 
-                let retryContent =
-                    latestContent;
+
+                // ------------------------------------------------
+                // EXISTING CONTENT
+                // ------------------------------------------------
+
+                let existingContent =
+                    localMessagesContent ||
+                    "";
 
                 if (
-                    retryContent &&
-                    !retryContent.endsWith("\n")
+                    existingContent.trim()
+                        .length > 0
                 ) {
-                    retryContent += "\n";
+
+                    existingContent =
+                        existingContent
+                            .trimEnd() +
+                        "\n\n";
                 }
 
-                if (retryContent.trim()) {
-                    retryContent += "\n";
-                }
 
-                retryContent += newEntry;
+                // ------------------------------------------------
+                // NEW CONTENT
+                // ------------------------------------------------
+
+                const updatedContent =
+                    existingContent +
+                    newEntry +
+                    "\n";
+
+
+                // ------------------------------------------------
+                // SAVE TO GITHUB
+                // ------------------------------------------------
 
                 const result =
-                    await updateGithubFile(
-                        retryContent,
-                        latestFile.sha,
-                        "Add new message"
+                    await updateMessagesFile(
+                        updatedContent,
+                        localMessagesSha
                     );
 
-                currentSha =
-                    result.content.sha;
 
-                if (messageInput) {
-                    messageInput.value = "";
-                    messageInput.style.height =
-                        "42px";
+                // ------------------------------------------------
+                // SAVE NEW SHA
+                // ------------------------------------------------
+
+                if (
+                    result &&
+                    result.content &&
+                    result.content.sha
+                ) {
+
+                    localMessagesSha =
+                        result.content.sha;
+
+                } else {
+
+                    localMessagesSha =
+                        null;
                 }
 
+
+                // ------------------------------------------------
+                // SAVE NEW CONTENT LOCALLY
+                // ------------------------------------------------
+
+                localMessagesContent =
+                    updatedContent;
+
+
+                // ------------------------------------------------
+                // UPDATE SCREEN
+                // ------------------------------------------------
+
                 displayMessagesFromContent(
-                    retryContent
+                    localMessagesContent
                 );
+
+
+                // ------------------------------------------------
+                // CLEAR MESSAGE FIELD
+                // ------------------------------------------------
+
+                messageElement.value =
+                    "";
+
+
+                // ------------------------------------------------
+                // SUCCESS
+                // ------------------------------------------------
 
                 setStatus(
-                    "Message sent successfully.",
-                    "success"
+                    "Message sent successfully."
                 );
 
-            } catch (retryError) {
+                return;
+
+
+            } catch (error) {
 
                 console.error(
-                    "Retry failed:",
-                    retryError
+                    `Send attempt ${attempt} failed:`,
+                    error
                 );
 
-                setStatus(
-                    "Error: " +
-                    retryError.message,
-                    "error"
-                );
+
+                // ------------------------------------------------
+                // SHA CONFLICT
+                // ------------------------------------------------
+
+                if (
+                    isShaConflict(error)
+                ) {
+
+                    if (
+                        attempt >=
+                        MAX_RETRIES
+                    ) {
+
+                        throw new Error(
+                            "GitHub SHA conflict continued after " +
+                            MAX_RETRIES +
+                            " attempts. Please refresh and try again."
+                        );
+                    }
+
+                    setStatus(
+                        "Another message was added. " +
+                        "Getting latest version..."
+                    );
+
+
+                    // Clear stale cache.
+
+                    localMessagesContent =
+                        null;
+
+                    localMessagesSha =
+                        null;
+
+
+                    // Wait.
+
+                    await sleep(
+                        1000 * attempt
+                    );
+
+
+                    // Get latest version.
+
+                    await refreshLocalCache();
+
+                    continue;
+                }
+
+
+                throw error;
             }
-
-        } else {
-
-            setStatus(
-                "Error: " +
-                error.message,
-                "error"
-            );
         }
+
+
+    } catch (error) {
+
+        console.error(
+            "Final send error:",
+            error
+        );
+
+        localMessagesContent =
+            null;
+
+        localMessagesSha =
+            null;
+
+        setStatus(
+            `Error: ${error.message}`,
+            true
+        );
+
 
     } finally {
 
-        isSending = false;
+        isSending =
+            false;
 
-        if (sendButton) {
-            sendButton.disabled = false;
+        if (button) {
+
+            button.disabled =
+                false;
         }
     }
 }
 
+
 // ============================================================
-// UPDATE GITHUB FILE
+// FETCH ALL MESSAGES
 // ============================================================
 
-async function updateGithubFile(
-    content,
-    sha,
-    commitMessage
-) {
+async function fetchMessages() {
 
-    const url = getGithubApiUrl();
+    const password =
+        prompt(
+            "Enter Message View Passcode:"
+        );
 
-    const body = {
-        message:
-            commitMessage ||
-            "Update messages",
+    if (
+        password !==
+        VIEW_PASSCODE
+    ) {
 
-        content:
-            encodeGithubContent(content),
+        setStatus(
+            "Incorrect view passcode.",
+            true
+        );
 
-        sha: sha,
+        return;
+    }
 
-        branch:
-            CONFIG.branch
-    };
+    if (!askForToken()) {
 
-    const response =
-        await fetch(url, {
-            method: "PUT",
-            headers: getGithubHeaders(),
-            body: JSON.stringify(body),
-            cache: "no-store"
-        });
+        return;
+    }
 
-    if (!response.ok) {
+    setStatus(
+        "Loading messages..."
+    );
 
-        let errorMessage = "";
+    try {
 
-        try {
+        await displayMessagesFromGitHub();
 
-            const errorData =
-                await response.json();
+        setStatus(
+            "Messages loaded successfully."
+        );
 
-            errorMessage =
-                errorData.message || "";
+        startAutoRefresh();
 
-        } catch (e) {
+    } catch (error) {
 
-            errorMessage =
-                await response.text();
-        }
+        console.error(
+            error
+        );
 
-        throw new Error(
-            "GitHub PUT failed (" +
-            response.status +
-            "): " +
-            errorMessage
+        setStatus(
+            `Error: ${error.message}`,
+            true
         );
     }
-
-    return await response.json();
 }
 
+
 // ============================================================
-// FORMAT TIMESTAMP
+// FORMAT DATE
 // ============================================================
 
-function formatTimestamp(date) {
+function formatTimestamp(
+    timestamp
+) {
+
+    const date =
+        new Date(
+            timestamp
+        );
+
+    if (
+        isNaN(
+            date.getTime()
+        )
+    ) {
+
+        return timestamp;
+    }
+
+
+    /*
+     * Display format:
+     *
+     * DD/MM/YYYY HH:MM:SS.milliseconds
+     *
+     * Example:
+     *
+     * 18/09/2026 04:00:46.573
+     *
+     * The time is displayed in the user's
+     * local timezone.
+     */
 
     const day =
-        String(date.getDate())
-            .padStart(2, "0");
+        String(
+            date.getDate()
+        ).padStart(
+            2,
+            "0"
+        );
 
     const month =
-        String(date.getMonth() + 1)
-            .padStart(2, "0");
+        String(
+            date.getMonth() + 1
+        ).padStart(
+            2,
+            "0"
+        );
 
     const year =
         date.getFullYear();
 
     const hours =
-        String(date.getHours())
-            .padStart(2, "0");
+        String(
+            date.getHours()
+        ).padStart(
+            2,
+            "0"
+        );
 
     const minutes =
-        String(date.getMinutes())
-            .padStart(2, "0");
+        String(
+            date.getMinutes()
+        ).padStart(
+            2,
+            "0"
+        );
 
     const seconds =
-        String(date.getSeconds())
-            .padStart(2, "0");
+        String(
+            date.getSeconds()
+        ).padStart(
+            2,
+            "0"
+        );
 
     const milliseconds =
-        String(date.getMilliseconds())
-            .padStart(3, "0");
+        String(
+            date.getMilliseconds()
+        ).padStart(
+            3,
+            "0"
+        );
 
     return (
-        day +
-        "/" +
-        month +
-        "/" +
-        year +
-        " " +
-        hours +
-        ":" +
-        minutes +
-        ":" +
-        seconds +
-        "." +
-        milliseconds
+        `${day}/${month}/${year} ` +
+        `${hours}:${minutes}:${seconds}.` +
+        `${milliseconds}`
     );
 }
 
+
 // ============================================================
-// STATUS MESSAGE
+// DISPLAY MESSAGES
 // ============================================================
 
-function setStatus(message, type) {
+function displayMessagesFromContent(
+    content
+) {
 
-    if (!statusElement) {
+    const messagesContainer =
+        document.getElementById(
+            "messages"
+        );
+
+    if (!messagesContainer) {
+
         return;
     }
 
-    statusElement.textContent = message;
 
-    statusElement.className =
-        "status " +
-        (type || "");
+    // --------------------------------------------------------
+    // EMPTY
+    // --------------------------------------------------------
 
-    // Automatically clear success message
-    if (type === "success") {
+    if (
+        !content ||
+        !content.trim()
+    ) {
 
-        setTimeout(function () {
+        messagesContainer.innerHTML = `
+
+            <div class="empty-message">
+
+                <div class="empty-icon">
+                    💬
+                </div>
+
+                <h3>
+                    No messages yet
+                </h3>
+
+                <p>
+                    Be the first to send a message.
+                </p>
+
+            </div>
+
+        `;
+
+        return;
+    }
+
+
+    // --------------------------------------------------------
+    // EXPECTED STORAGE FORMAT
+    //
+    // [2026-09-18T...]
+    // Sender: Rahul
+    // Message: Hello
+    // --------------------------------------------------------
+
+    const messagePattern =
+        /\[([^\]]+)\]\s*\nSender:\s*(.*?)\s*\nMessage:\s*([\s\S]*?)(?=\n\[|$)/g;
+
+    const messages =
+        [];
+
+    let match;
+
+    while (
+        (
+            match =
+                messagePattern.exec(
+                    content
+                )
+        ) !== null
+    ) {
+
+        messages.push({
+
+            timestamp:
+                match[1].trim(),
+
+            sender:
+                match[2].trim(),
+
+            message:
+                match[3].trim()
+        });
+    }
+
+
+    // --------------------------------------------------------
+    // NO VALID MESSAGES
+    // --------------------------------------------------------
+
+    if (
+        messages.length === 0
+    ) {
+
+        messagesContainer.innerHTML = `
+
+            <div class="empty-message">
+
+                <div class="empty-icon">
+                    💬
+                </div>
+
+                <h3>
+                    No messages found
+                </h3>
+
+            </div>
+
+        `;
+
+        return;
+    }
+
+
+    // --------------------------------------------------------
+    // NEWEST FIRST
+    // --------------------------------------------------------
+
+    messages.reverse();
+
+
+    // --------------------------------------------------------
+    // MESSAGE BOX
+    // --------------------------------------------------------
+
+    const messageBox =
+        document.createElement(
+            "div"
+        );
+
+    messageBox.className =
+        "message-box";
+
+
+    // --------------------------------------------------------
+    // CREATE EACH MESSAGE
+    // --------------------------------------------------------
+
+    messages.forEach(
+        (messageData, index) => {
+
+            const messageBlock =
+                document.createElement(
+                    "div"
+                );
+
+            messageBlock.className =
+                "message-block";
+
+
+            // ------------------------------------------------
+            // TIMESTAMP
+            // ------------------------------------------------
+
+            const timestamp =
+                document.createElement(
+                    "div"
+                );
+
+            timestamp.className =
+                "message-timestamp";
+
+            timestamp.textContent =
+                `date time -> [${formatTimestamp(
+                    messageData.timestamp
+                )}]`;
+
+
+            // ------------------------------------------------
+            // SENDER
+            // ------------------------------------------------
+
+            /*
+             * IMPORTANT:
+             *
+             * Sender is now a SPAN instead of DIV.
+             * This keeps sender and message on the
+             * SAME LINE.
+             *
+             * No ** characters are printed.
+             */
+
+            const sender =
+                document.createElement(
+                    "span"
+                );
+
+            sender.className =
+                "message-sender";
+
+            sender.textContent =
+                `${messageData.sender}: `;
+
+
+            // ------------------------------------------------
+            // MESSAGE
+            // ------------------------------------------------
+
+            /*
+             * Message is also a SPAN.
+             * Therefore it stays on the same line
+             * as the sender.
+             */
+
+            const message =
+                document.createElement(
+                    "span"
+                );
+
+            message.className =
+                "message-content";
+
+            message.textContent =
+                messageData.message;
+
+
+            // ------------------------------------------------
+            // ADD ELEMENTS
+            // ------------------------------------------------
+
+            messageBlock.appendChild(
+                timestamp
+            );
+
+            messageBlock.appendChild(
+                sender
+            );
+
+            messageBlock.appendChild(
+                message
+            );
+
+
+            // ------------------------------------------------
+            // SEPARATOR
+            // ------------------------------------------------
 
             if (
-                statusElement.textContent ===
-                message
+                index <
+                messages.length - 1
             ) {
 
-                statusElement.textContent = "";
-                statusElement.className =
-                    "status";
+                const separator =
+                    document.createElement(
+                        "hr"
+                    );
+
+                separator.className =
+                    "message-separator";
+
+                messageBlock.appendChild(
+                    separator
+                );
             }
 
-        }, 3000);
+
+            messageBox.appendChild(
+                messageBlock
+            );
+        }
+    );
+
+
+    // --------------------------------------------------------
+    // DISPLAY
+    // --------------------------------------------------------
+
+    messagesContainer.innerHTML =
+        "";
+
+    messagesContainer.appendChild(
+        messageBox
+    );
+}
+
+
+// ============================================================
+// GET LATEST FROM GITHUB
+// ============================================================
+
+async function displayMessagesFromGitHub() {
+
+    const latest =
+        await refreshLocalCache();
+
+    displayMessagesFromContent(
+        latest.content
+    );
+}
+
+
+// ============================================================
+// AUTOMATIC REFRESH
+// ============================================================
+
+async function autoRefreshMessages() {
+
+    // Don't refresh while sending.
+
+    if (isSending) {
+
+        return;
+    }
+
+
+    // Don't ask for token automatically.
+
+    if (!githubToken) {
+
+        return;
+    }
+
+    try {
+
+        const latest =
+            await getMessagesFile();
+
+        /*
+         * Only update the screen when GitHub's
+         * file SHA has changed.
+         */
+
+        if (
+            latest.sha !==
+            localMessagesSha
+        ) {
+
+            localMessagesContent =
+                latest.content;
+
+            localMessagesSha =
+                latest.sha;
+
+            displayMessagesFromContent(
+                latest.content
+            );
+        }
+
+    } catch (error) {
+
+        console.error(
+            "Automatic refresh failed:",
+            error
+        );
     }
 }
 
+
 // ============================================================
-// AUTO REFRESH
+// START AUTO REFRESH
 // ============================================================
 
 function startAutoRefresh() {
 
-    if (autoRefreshInterval) {
-        clearInterval(autoRefreshInterval);
+    if (autoRefreshTimer) {
+
+        clearInterval(
+            autoRefreshTimer
+        );
     }
 
     /*
-        Refresh every 5 seconds.
-    */
+     * Check for new messages every 5 seconds.
+     */
 
-    autoRefreshInterval =
-        setInterval(function () {
-
-            fetchMessages(false);
-
-        }, 5000);
+    autoRefreshTimer =
+        setInterval(
+            autoRefreshMessages,
+            5000
+        );
 }
 
+
 // ============================================================
-// MOBILE TYPING MODE
+// STATUS
 // ============================================================
-//
-// On mobile, when the user starts typing:
-//
-// - Hide logo
-// - Hide "Send Message"
-// - Hide description
-// - Hide sender field
-// - Hide "All Messages" header
-// - Hide footer
-// - Keep messages visible
-// - Keep last messages visible above keyboard
-// - Keep message box at bottom
-// - Keep send button visible
-//
+
+function setStatus(
+    message,
+    isError = false
+) {
+
+    const status =
+        document.getElementById(
+            "status"
+        );
+
+    if (!status) {
+
+        return;
+    }
+
+    status.textContent =
+        message;
+
+    status.className =
+        isError
+            ? "status error"
+            : "status";
+}
+
+
+// ============================================================
+// SLEEP
+// ============================================================
+
+function sleep(
+    milliseconds
+) {
+
+    return new Promise(
+        resolve =>
+            setTimeout(
+                resolve,
+                milliseconds
+            )
+    );
+}
+
+
+// ============================================================
+// ENTER KEY
+// ============================================================
+
+function setupEnterKey() {
+
+    const messageElement =
+        document.getElementById(
+            "message"
+        );
+
+    if (!messageElement) {
+
+        return;
+    }
+
+    messageElement.addEventListener(
+        "keydown",
+        event => {
+
+            /*
+             * Enter = Send
+             *
+             * Shift + Enter = New line
+             */
+
+            if (
+                event.key === "Enter" &&
+                !event.shiftKey
+            ) {
+
+                event.preventDefault();
+
+                sendMessage();
+            }
+        }
+    );
+}
+
+
+// ============================================================
+// INITIALIZE
 // ============================================================
 
 document.addEventListener(
     "DOMContentLoaded",
-    function () {
+    () => {
 
-        const mobileMessageInput =
-            document.getElementById("message");
-
-        if (!mobileMessageInput) {
-            return;
-        }
-
-        function isMobile() {
-
-            return window.matchMedia(
-                "(max-width: 800px)"
-            ).matches;
-        }
-
-        function showMobileTypingMode() {
-
-            if (!isMobile()) {
-                return;
-            }
-
-            document.body.classList.add(
-                "mobile-typing"
+        const sendButton =
+            document.getElementById(
+                "sendButton"
             );
 
-            setTimeout(function () {
+        const fetchButton =
+            document.getElementById(
+                "fetchButton"
+            );
 
-                const messagesArea =
-                    document.querySelector(
-                        ".messages-area"
-                    );
 
-                if (messagesArea) {
+        // ----------------------------------------------------
+        // SEND BUTTON
+        // ----------------------------------------------------
 
-                    messagesArea.scrollTop =
-                        messagesArea.scrollHeight;
-                }
+        if (sendButton) {
 
-            }, 100);
-        }
-
-        // Enter typing mode when user taps the box
-        mobileMessageInput.addEventListener(
-            "focus",
-            showMobileTypingMode
-        );
-
-        // Also enter typing mode when user types
-        mobileMessageInput.addEventListener(
-            "input",
-            function () {
-
-                showMobileTypingMode();
-
-                /*
-                    Automatically increase textarea height
-                    when multiple lines are typed.
-                */
-
-                if (isMobile()) {
-
-                    mobileMessageInput.style.height =
-                        "42px";
-
-                    const newHeight =
-                        Math.min(
-                            mobileMessageInput
-                                .scrollHeight,
-                            100
-                        );
-
-                    mobileMessageInput.style.height =
-                        newHeight + "px";
-                }
-            }
-        );
-
-        /*
-            When keyboard/viewport changes, keep the
-            latest messages visible.
-        */
-
-        if (window.visualViewport) {
-
-            window.visualViewport.addEventListener(
-                "resize",
-                function () {
-
-                    if (
-                        document.body.classList
-                            .contains("mobile-typing")
-                    ) {
-
-                        setTimeout(function () {
-
-                            const messagesArea =
-                                document.querySelector(
-                                    ".messages-area"
-                                );
-
-                            if (messagesArea) {
-
-                                messagesArea.scrollTop =
-                                    messagesArea.scrollHeight;
-                            }
-
-                        }, 50);
-                    }
-                }
+            sendButton.addEventListener(
+                "click",
+                sendMessage
             );
         }
 
+
+        // ----------------------------------------------------
+        // FETCH BUTTON
+        // ----------------------------------------------------
+
+        if (fetchButton) {
+
+            fetchButton.addEventListener(
+                "click",
+                fetchMessages
+            );
+        }
+
+
+        // ----------------------------------------------------
+        // ENTER KEY
+        // ----------------------------------------------------
+
+        setupEnterKey();
+
+
+        // ----------------------------------------------------
+        // AUTO REFRESH
+        // ----------------------------------------------------
+
+        startAutoRefresh();
     }
 );
