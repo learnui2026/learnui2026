@@ -1280,7 +1280,7 @@ function startAutoRefresh() {
     autoRefreshTimer =
         setInterval(
             autoRefreshMessages,
-            5000
+            2000
         );
 }
 
