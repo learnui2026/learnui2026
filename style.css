@@ -916,17 +916,47 @@ textarea {
             2px 0;
     }
 }
+/* ============================================================
+   GOOGLE MEET BUTTON
+============================================================ */
+
 .meet-button {
-    display: inline-block;
-    padding: 12px 20px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+
+    padding: 12px 22px;
+
     background: #1a73e8;
-    color: white;
+    color: #ffffff;
+
     text-decoration: none;
-    border-radius: 8px;
+    border: none;
+    border-radius: 10px;
+
+    font-size: 15px;
     font-weight: 600;
+
     cursor: pointer;
+
+    box-shadow: 0 3px 8px rgba(26, 115, 232, 0.25);
+
+    transition:
+        background 0.2s ease,
+        transform 0.2s ease,
+        box-shadow 0.2s ease;
 }
 
 .meet-button:hover {
-    opacity: 0.9;
+    background: #1769d2;
+
+    transform: translateY(-1px);
+
+    box-shadow:
+        0 5px 12px rgba(26, 115, 232, 0.30);
+}
+
+.meet-button:active {
+    transform: translateY(0);
 }
