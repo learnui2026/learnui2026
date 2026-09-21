@@ -1520,3 +1520,7 @@ Message: Mujhe bahut weakness lag rhi ur raja ko lagta mai jhut bolti
 Sender: Host
 Message: Ish me jhuth bolne jaisa kya hai
 
+[2026-09-21T20:10:13.975Z]
+Sender: Host
+Message: Usko jhuth kyu lag raha hai
+
