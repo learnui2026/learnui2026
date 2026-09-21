@@ -1224,3 +1224,7 @@ Message: Indore ka nahi batata hu, bol deta hu delhi se aa raha hu indore
 Sender: Host
 Message: Yaha ka kyu bolna hai beta
 
+[2026-09-21T13:31:54.190Z]
+Sender: Host
+Message: Delhi ka bolta hu na beta
+
