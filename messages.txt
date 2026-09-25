@@ -66,3 +66,7 @@ Message: Hi
 Sender: Host
 Message: Ooo
 
+[2026-09-25T17:49:06.198Z]
+Sender: Host
+Message: Tum narmal call log text message, whats app call call log aaj tum ne video call kiya tha wo whats app messagw ans all delete every thing
+
