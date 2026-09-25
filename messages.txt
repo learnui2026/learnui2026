@@ -38,3 +38,7 @@ Message: ?
 Sender: Host
 Message: Hi
 
+[2026-09-25T17:02:25.435Z]
+Sender: Host
+Message: Removed all previous messages and only today data is here
+
