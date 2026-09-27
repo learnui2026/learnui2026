@@ -230,3 +230,7 @@ Message: Tum bhi join karo
 Sender: Host
 Message: Kya hua karo na join
 
+[2026-09-27T19:49:01.505Z]
+Sender: Host
+Message: Batana jab join karna hoga
+
