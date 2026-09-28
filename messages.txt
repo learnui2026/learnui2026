@@ -258,3 +258,7 @@ Message: Karo join
 Sender: Host
 Message: I have joined
 
+[2026-09-28T16:43:03.360Z]
+Sender: Host
+Message: Hi
+
