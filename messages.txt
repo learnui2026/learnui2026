@@ -374,3 +374,7 @@ Message: Ha ruko 1 min
 Sender: Radha
 Message: Dekh lo pahle bhi to humne bat ki hai
 
+[2026-09-28T20:40:17.790Z]
+Sender: Radha
+Message: Karo koin
+
