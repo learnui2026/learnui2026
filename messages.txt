@@ -402,3 +402,7 @@ Message: Kal ka interview reject hua
 Sender: Radha
 Message: Ky karu mai
 
+[2026-09-30T08:38:54.814Z]
+Sender: Radha
+Message: Ab pahle project k liye interview nikalna padega
+
