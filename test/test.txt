@@ -1,49 +1,345 @@
-import { test, expect } from '@playwright/test';
+import "dotenv/config";
 
-test.describe('Paid Course Enquiry', () => {
-  test('loads the enquiry board', async ({ page }) => {
-    await page.goto('https://learnui2026.github.io/learnui2026/');
+import { CopilotClient } from "@github/copilot-sdk";
+import { chromium, type Page, type Locator } from "playwright";
+import { mkdir, writeFile } from "node:fs/promises";
+import * as readline from "node:readline/promises";
+import { stdin, stdout } from "node:process";
+import path from "node:path";
 
-    await expect(page).toHaveTitle('Paid Course Enquiry');
-    await expect(page.getByRole('heading', { level: 1, name: 'Enquiry Board' })).toBeVisible();
-  });
+type ElementInfo = {
+  tag: string;
+  text: string;
+  id: string | null;
+  name: string | null;
+  type: string | null;
+  role: string | null;
+  ariaLabel: string | null;
+  placeholder: string | null;
+  title: string | null;
+  href?: string | null;
+  required?: boolean;
+  disabled?: boolean;
+};
 
-  test('shows the enquiry and messages sections', async ({ page }) => {
-    await page.goto('https://learnui2026.github.io/learnui2026/');
+type FormInfo = {
+  id: string | null;
+  name: string | null;
+  action: string | null;
+  method: string | null;
+  text: string;
+  fields: ElementInfo[];
+};
 
-    await expect(page.getByRole('heading', { level: 2, name: 'SEND Enquiry' })).toBeVisible();
-    await expect(page.getByRole('heading', { level: 2, name: 'All Messages' })).toBeVisible();
-  });
+type WebsiteInfo = {
+  url: string;
+  finalUrl: string;
+  title: string;
+  headings: ElementInfo[];
+  forms: FormInfo[];
+  fieldsOutsideForms: ElementInfo[];
+  buttons: ElementInfo[];
+  links: ElementInfo[];
+  pageText: string;
+  inspectionWarnings: string[];
+};
 
-  test('provides the observed enquiry fields and controls', async ({ page }) => {
-    await page.goto('https://learnui2026.github.io/learnui2026/');
+const MAX_ELEMENTS = 60;
+const MAX_TEXT_LENGTH = 12000;
+const MODEL = process.env.COPILOT_MODEL || "auto";
 
-    const senderField = page.locator('#sender');
-    await expect(senderField).toHaveCount(1);
-    await expect(senderField).toBeVisible();
+function shorten(value: string | null | undefined, max = 500): string {
+  return (value ?? "").trim().slice(0, max);
+}
 
-    const messageField = page.locator('#message');
-    await expect(messageField).toHaveCount(1);
-    await expect(messageField).toBeVisible();
+/** Collect visible text and actual attributes without assuming field names. */
+async function readElements(
+  root: Page | Locator,
+  selector: string,
+  limit = MAX_ELEMENTS,
+): Promise<ElementInfo[]> {
+  const collection = root.locator(selector);
+  const count = Math.min(await collection.count(), limit);
+  const results: ElementInfo[] = [];
 
-    const sendButton = page.locator('#sendButton');
-    await expect(sendButton).toHaveCount(1);
-    await expect(sendButton).toBeVisible();
+  for (let i = 0; i < count; i++) {
+    const element = collection.nth(i);
+    try {
+      const tag = await element.evaluate((node) => node.tagName.toLowerCase()).catch(() => "");
+      const [text, id, name, type, role, ariaLabel, placeholder, title, href, required, disabled] =
+        await Promise.all([
+          element.innerText().catch(() => ""),
+          element.getAttribute("id").catch(() => null),
+          element.getAttribute("name").catch(() => null),
+          element.getAttribute("type").catch(() => null),
+          element.getAttribute("role").catch(() => null),
+          element.getAttribute("aria-label").catch(() => null),
+          element.getAttribute("placeholder").catch(() => null),
+          element.getAttribute("title").catch(() => null),
+          element.getAttribute("href").catch(() => null),
+          element.getAttribute("required").catch(() => null),
+          element.getAttribute("disabled").catch(() => null),
+        ]);
 
-    const fetchButton = page.locator('#fetchButton');
-    await expect(fetchButton).toHaveCount(1);
-    await expect(fetchButton).toBeVisible();
-  });
+      results.push({
+        tag,
+        text: shorten(text, 300),
+        id,
+        name,
+        type,
+        role,
+        ariaLabel,
+        placeholder,
+        title,
+        href,
+        required: required !== null,
+        disabled: disabled !== null,
+      });
+    } catch {
+      // The element may disappear while the page is loading.
+    }
+  }
+  return results;
+}
 
-  test('shows the observed host meeting link', async ({ page }) => {
-    await page.goto('https://learnui2026.github.io/learnui2026/');
+async function inspectForms(page: Page): Promise<FormInfo[]> {
+  const forms = page.locator("form");
+  const count = Math.min(await forms.count(), 30);
+  const results: FormInfo[] = [];
 
-    const meetingLink = page.getByRole('link', { name: '🎥 Join Meet With Host' });
-    await expect(meetingLink).toHaveCount(1);
-    await expect(meetingLink).toBeVisible();
-    await expect(meetingLink).toHaveAttribute('href', 'https://meet.google.com/vse-fpwh-fcd');
-  });
+  for (let i = 0; i < count; i++) {
+    const form = forms.nth(i);
+    try {
+      const [id, name, action, method, text, fields] = await Promise.all([
+        form.getAttribute("id").catch(() => null),
+        form.getAttribute("name").catch(() => null),
+        form.getAttribute("action").catch(() => null),
+        form.getAttribute("method").catch(() => null),
+        form.innerText().catch(() => ""),
+        readElements(form, "input, textarea, select, button", 50),
+      ]);
+      results.push({ id, name, action, method, text: shorten(text, 1500), fields });
+    } catch {
+      // Skip a form that disappears during inspection.
+    }
+  }
+  return results;
+}
 
-  // Sending an enquiry is not exercised because it may create a live message.
+async function inspectWebsite(url: string): Promise<WebsiteInfo> {
+  const browser = await chromium.launch({ headless: true });
+  const page = await browser.newPage({ viewport: { width: 1365, height: 900 } });
+  const warnings: string[] = [];
+
+  try {
+    console.log("\nInspecting website...");
+    console.log("URL:", url);
+    const response = await page.goto(url, {
+      waitUntil: "domcontentloaded",
+      timeout: 45000,
+    });
+
+    if (response && response.status() >= 400) {
+      warnings.push(`Initial navigation returned HTTP ${response.status()}.`);
+    }
+    await page.waitForLoadState("load", { timeout: 10000 }).catch(() => undefined);
+    await page.waitForTimeout(1000);
+
+    const title = await page.title().catch(() => "");
+    const finalUrl = page.url();
+    const [headings, forms, allFields, buttons, links, pageText] = await Promise.all([
+      readElements(page, "h1, h2, h3, h4, h5, h6", 50),
+      inspectForms(page),
+      readElements(page, "input, textarea, select"),
+      readElements(page, 'button, input[type="submit"], input[type="button"], [role="button"]'),
+      readElements(page, "a[href]"),
+      page.locator("body").innerText().catch(() => ""),
+    ]);
+
+    const fieldsOutsideForms: ElementInfo[] = [];
+    const fieldLocator = page.locator("input, textarea, select");
+    const fieldCount = Math.min(await fieldLocator.count(), MAX_ELEMENTS);
+    for (let i = 0; i < fieldCount; i++) {
+      const belongsToForm = await fieldLocator.nth(i)
+        .evaluate((element) => element.closest("form") !== null)
+        .catch(() => true);
+      if (!belongsToForm && allFields[i]) fieldsOutsideForms.push(allFields[i]);
+    }
+
+    if (allFields.length >= MAX_ELEMENTS) {
+      warnings.push(`Field inspection was limited to ${MAX_ELEMENTS} elements.`);
+    }
+    if (forms.length === 0) {
+      warnings.push("No standard HTML forms were detected. The website may use custom controls.");
+    }
+
+    return {
+      url,
+      finalUrl,
+      title,
+      headings,
+      forms,
+      fieldsOutsideForms,
+      buttons,
+      links,
+      pageText: shorten(pageText, MAX_TEXT_LENGTH),
+      inspectionWarnings: warnings,
+    };
+  } finally {
+    await browser.close();
+  }
+}
+
+function buildGenerationPrompt(info: WebsiteInfo, userRequirements: string): string {
+  return `
+You are an expert TypeScript and Playwright test-generation agent.
+
+Generate a complete Playwright test file for the inspected website.
+
+WEBSITE INSPECTION DATA:
+${JSON.stringify(info, null, 2)}
+
+ADDITIONAL TEST REQUIREMENTS FROM THE USER:
+${userRequirements.trim() || "No additional requirements provided. Generate automatic tests only."}
+
+CORE REQUIREMENTS:
+
+1. PRESERVE AUTOMATIC TEST GENERATION
+- Generate useful tests from the website inspection data.
+- Include appropriate page-load, heading, navigation, and control tests.
+- Do not replace automatic tests with only user-requested tests.
+- Add requested tests alongside automatic tests and avoid duplicates.
+
+2. NO HARDCODED WEBSITE ASSUMPTIONS
+- Do not assume particular field names, placeholders, labels, headings, forms, buttons, or links exist.
+- Use actual attributes and structure from the inspection data.
+- Do not invent website-specific IDs, labels, text, or selectors.
+- If a requested element cannot be found, do not invent it. Use test.skip() with a clear reason or explain the limitation in a comment.
+
+3. LOCATOR UNIQUENESS
+- Prefer reliable observed IDs, names, accessible labels, roles, and placeholders.
+- Before acting on a locator that may match multiple elements, verify its count.
+- Scope ambiguous fields to the correct form or section using observed attributes and structure.
+- Never use first() or nth() just to conceal ambiguity.
+- Do not assume every website has an email field or contact form.
+
+4. USER-REQUESTED INTERACTIONS
+- Generate additional tests addressing the user's instructions.
+- Use observed fields and supplied test values.
+- If data is missing, use clearly identified synthetic test data where appropriate.
+- Do not claim an action succeeded unless the test verifies it.
+
+5. SUBMISSION AND SAFETY
+- The inspection phase must remain read-only.
+- Generate form-submission tests only when explicitly requested or demonstrably safe.
+- Do not submit payments, purchases, account changes, or other consequential operations against live services.
+- For potentially consequential submissions, require a designated test environment or safe mock.
+- Never hardcode passwords, API keys, or authentication tokens.
+
+6. TEST QUALITY
+- Use @playwright/test, test.describe and independent test cases where practical.
+- Use assertions based on actual inspection evidence.
+- Avoid brittle assertions and fixed waits as a substitute for assertions.
+- Do not use page.evaluate() or page.evaluateAll() in generated tests.
+- Do not import unavailable helper files.
+
+7. OUTPUT
+- Return only complete, executable TypeScript source code, without Markdown fences.
+- Use the inspected website URL.
+- Ensure the output can be saved as a .spec.ts file.
+`;
+}
+
+function extractTypeScript(response: string): string {
+  const trimmed = response.trim();
+  const fenced = trimmed.match(/^\s*```(?:typescript|ts)?\s*\n([\s\S]*?)\n```\s*$/i);
+  return (fenced ? fenced[1] : trimmed).trim() + "\n";
+}
+
+async function generateTests(info: WebsiteInfo, userRequirements: string): Promise<string> {
+  console.log("\nAsking GitHub Copilot to generate automatic and requested tests...");
+  const prompt = buildGenerationPrompt(info, userRequirements);
+  const client = new CopilotClient();
+
+  try {
+    await client.start();
+    const session = await client.createSession({ model: MODEL });
+    try {
+      const response = await session.sendAndWait({ prompt }, 180000);
+      const generatedCode = response?.data.content?.trim();
+      if (!generatedCode) {
+        throw new Error("GitHub Copilot returned an empty response. Check your Copilot sign-in and try again.");
+      }
+
+      const code = extractTypeScript(generatedCode);
+      if (!code.includes("@playwright/test") || !/\btest\s*\(/.test(code)) {
+        throw new Error("Copilot did not return recognizable Playwright test code. No test file was saved.");
+      }
+      return code;
+    } finally {
+      await session.disconnect().catch(() => undefined);
+    }
+  } finally {
+    await client.stop().catch(() => undefined);
+  }
+}
+
+async function main(): Promise<void> {
+  const rl = readline.createInterface({ input: stdin, output: stdout });
+  try {
+    const urlInput = await rl.question("Enter the website URL to inspect: ");
+    const url = urlInput.trim();
+    let parsedUrl: URL;
+    try {
+      parsedUrl = new URL(url);
+    } catch {
+      throw new Error("Invalid URL. Enter a complete URL, such as https://example.com");
+    }
+    if (!["http:", "https:"].includes(parsedUrl.protocol)) {
+      throw new Error("Only HTTP and HTTPS URLs are supported.");
+    }
+
+    const userRequirements = await rl.question(
+      "\nWhat additional tests do you want?\n" +
+      "Describe fields, values, actions, or form submissions.\n" +
+      "Press Enter to generate automatic tests only:\n> ",
+    );
+
+    const info = await inspectWebsite(parsedUrl.toString());
+    console.log("\nWebsite inspection complete.");
+    console.log("Title:", info.title || "(no title found)");
+    console.log("Final URL:", info.finalUrl);
+    console.log("Headings found:", info.headings.length);
+    console.log("Forms found:", info.forms.length);
+    console.log("Fields inside forms:", info.forms.reduce((total, form) => total + form.fields.length, 0));
+    console.log("Fields outside forms:", info.fieldsOutsideForms.length);
+    console.log("Buttons found:", info.buttons.length);
+    console.log("Links found:", info.links.length);
+
+    if (info.inspectionWarnings.length > 0) {
+      console.log("\nInspection warnings:");
+      for (const warning of info.inspectionWarnings) console.log("-", warning);
+    }
+
+    const code = await generateTests(info, userRequirements);
+    const outputDirectory = path.resolve("generated-tests");
+    const outputFile = path.join(outputDirectory, "website.spec.ts");
+    await mkdir(outputDirectory, { recursive: true });
+    await writeFile(outputFile, code, "utf8");
+
+    console.log("\nTest generation complete.");
+    console.log("Generated file:", outputFile);
+    console.log("\nReview the generated tests before running them.");
+    console.log("\nTo run the tests, execute:");
+    console.log("npx playwright test generated-tests/website.spec.ts");
+  } finally {
+    rl.close();
+  }
+}
+
+main().catch((error: unknown) => {
+  const message = error instanceof Error ? error.message : String(error);
+  console.error("\nAgent failed:", message);
+  console.error("Check that GitHub Copilot CLI is installed, authenticated, and permitted by your organization.");
+  process.exitCode = 1;
 });
-
