@@ -2162,3 +2162,7 @@ Message: Ha bijesh aa gaua
 Sender: Host
 Message: Jaldi rakh nahi sakte the kya
 
+[2026-10-14T20:55:23.649Z]
+Sender: Host
+Message: Bekar ho tum
+
