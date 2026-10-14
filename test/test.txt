@@ -1,1 +1,49 @@
+import { test, expect } from '@playwright/test';
+
+test.describe('Paid Course Enquiry', () => {
+  test('loads the enquiry board', async ({ page }) => {
+    await page.goto('https://learnui2026.github.io/learnui2026/');
+
+    await expect(page).toHaveTitle('Paid Course Enquiry');
+    await expect(page.getByRole('heading', { level: 1, name: 'Enquiry Board' })).toBeVisible();
+  });
+
+  test('shows the enquiry and messages sections', async ({ page }) => {
+    await page.goto('https://learnui2026.github.io/learnui2026/');
+
+    await expect(page.getByRole('heading', { level: 2, name: 'SEND Enquiry' })).toBeVisible();
+    await expect(page.getByRole('heading', { level: 2, name: 'All Messages' })).toBeVisible();
+  });
+
+  test('provides the observed enquiry fields and controls', async ({ page }) => {
+    await page.goto('https://learnui2026.github.io/learnui2026/');
+
+    const senderField = page.locator('#sender');
+    await expect(senderField).toHaveCount(1);
+    await expect(senderField).toBeVisible();
+
+    const messageField = page.locator('#message');
+    await expect(messageField).toHaveCount(1);
+    await expect(messageField).toBeVisible();
+
+    const sendButton = page.locator('#sendButton');
+    await expect(sendButton).toHaveCount(1);
+    await expect(sendButton).toBeVisible();
+
+    const fetchButton = page.locator('#fetchButton');
+    await expect(fetchButton).toHaveCount(1);
+    await expect(fetchButton).toBeVisible();
+  });
+
+  test('shows the observed host meeting link', async ({ page }) => {
+    await page.goto('https://learnui2026.github.io/learnui2026/');
+
+    const meetingLink = page.getByRole('link', { name: '🎥 Join Meet With Host' });
+    await expect(meetingLink).toHaveCount(1);
+    await expect(meetingLink).toBeVisible();
+    await expect(meetingLink).toHaveAttribute('href', 'https://meet.google.com/vse-fpwh-fcd');
+  });
+
+  // Sending an enquiry is not exercised because it may create a live message.
+});
 
