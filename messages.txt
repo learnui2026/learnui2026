@@ -2778,3 +2778,7 @@ Message: Yup
 Sender: Radha
 Message: To tum kyo nhi gy bhandare m Bijesh so gy
 
+[2026-10-20T20:21:35.024Z]
+Sender: Host
+Message: 1 ya 2 din tak to hota hai na idhar bhandara har bar
+
