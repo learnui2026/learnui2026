@@ -1,48 +1,768 @@
-import { test, expect } from '@playwright/test';
+import "dotenv/config";
+import { CopilotClient } from "@github/copilot-sdk";
+import { chromium, type Page, type Locator } from "playwright";
+import { mkdir, writeFile } from "node:fs/promises";
+import * as readline from "node:readline/promises";
+import { stdin, stdout } from "node:process";
+import path from "node:path";
+import { spawn } from "node:child_process";
+import express, { type Request, type Response } from "express";
+import dotenv from "dotenv";
+import { Client } from "pg";
 
-test.describe('Paid Course Enquiry', () => {
-  test('loads the enquiry board', async ({ page }) => {
-    await page.goto('https://learnui2026.github.io/learnui2026/');
+type ElementInfo = {
+  tag: string;
+  text: string;
+  id: string | null;
+  name: string | null;
+  type: string | null;
+  role: string | null;
+  ariaLabel: string | null;
+  placeholder: string | null;
+  title: string | null;
+  href?: string | null;
+  required?: boolean;
+  disabled?: boolean;
+  visible: boolean;
+  accessibleName: string;
+};
 
-    await expect(page).toHaveTitle('Paid Course Enquiry');
-    await expect(page.getByRole('heading', { level: 1, name: 'Enquiry Board' })).toBeVisible();
+type FormInfo = {
+  id: string | null;
+  name: string | null;
+  action: string | null;
+  method: string | null;
+  text: string;
+  visible: boolean;
+  fields: ElementInfo[];
+};
+
+type WebsiteInfo = {
+  url: string;
+  finalUrl: string;
+  title: string;
+  headings: ElementInfo[];
+  forms: FormInfo[];
+  fieldsOutsideForms: ElementInfo[];
+  buttons: ElementInfo[];
+  links: ElementInfo[];
+  pageText: string;
+  inspectionWarnings: string[];
+};
+
+const MAX_ELEMENTS = 200;
+const MAX_TEXT_LENGTH = 1200000;
+const MODEL = process.env.COPILOT_MODEL || "auto";
+const MAX_REPAIR_ATTEMPTS = 2;
+
+function shorten(value: string | null | undefined, max = 1000): string {
+  return (value ?? "").trim().slice(0, max);
+}
+
+/** Collect only observed DOM facts; do not infer visibility or names from guesses. */
+
+
+
+async function readElements(
+  root: Page | Locator,
+  selector: string,
+  limit = MAX_ELEMENTS,
+): Promise<ElementInfo[]> {
+  const collection = root.locator(selector);
+  const count = Math.min(await collection.count(), limit);
+  const results: ElementInfo[] = [];
+
+  for (let i = 0; i < count; i++) {
+    const element = collection.nth(i);
+
+    try {
+      const tag = await element.evaluate(
+        (node) => node.tagName.toLowerCase(),
+      );
+
+      const [
+        text,
+        id,
+        name,
+        type,
+        role,
+        ariaLabel,
+        placeholder,
+        title,
+        href,
+        required,
+        disabled,
+        visible,
+      ] = await Promise.all([
+        element.innerText().catch(() => ""),
+        element.getAttribute("id"),
+        element.getAttribute("name"),
+        element.getAttribute("type"),
+        element.getAttribute("role"),
+        element.getAttribute("aria-label"),
+        element.getAttribute("placeholder"),
+        element.getAttribute("title"),
+        element.getAttribute("href"),
+        element.getAttribute("required"),
+        element.getAttribute("disabled"),
+        element.isVisible().catch(() => false),
+      ]);
+
+      const accessibleName =
+        ariaLabel ?? placeholder ?? title ?? text.trim();
+
+      results.push({
+        tag,
+        text: shorten(text, 300),
+        id,
+        name,
+        type,
+        role,
+        ariaLabel,
+        placeholder,
+        title,
+        href,
+        required: required !== null,
+        disabled: disabled !== null,
+        visible,
+        accessibleName: shorten(accessibleName, 300),
+      });
+    } catch (error) {
+      console.warn(
+        `Could not inspect element ${i} for selector "${selector}":`,
+        error,
+      );
+    }
+  }
+
+  return results;
+}
+
+
+
+
+async function inspectForms(page: Page): Promise<FormInfo[]> {
+  const forms = page.locator("form");
+  const count = Math.min(await forms.count(), 30);
+  const results: FormInfo[] = [];
+
+  for (let i = 0; i < count; i++) {
+    const form = forms.nth(i);
+    try {
+      const [id, name, action, method, text, visible, fields] = await Promise.all([
+        form.getAttribute("id").catch(() => null),
+        form.getAttribute("name").catch(() => null),
+        form.getAttribute("action").catch(() => null),
+        form.getAttribute("method").catch(() => null),
+        form.innerText().catch(() => ""),
+        form.isVisible().catch(() => false),
+        readElements(form, "input, textarea, select, button", 50),
+      ]);
+      results.push({ id, name, action, method, text: shorten(text, 1500), visible, fields });
+    } catch {
+      // Skip a form that disappears during inspection.
+    }
+  }
+
+  return results;
+}
+
+async function inspectWebsite(url: string): Promise<WebsiteInfo> {
+  const browser = await chromium.launch({ headless: true });
+  const page = await browser.newPage({ viewport: { width: 1365, height: 900 } });
+  const warnings: string[] = [];
+
+  try {
+    console.log("\nInspecting website...");
+    console.log("URL:", url);
+
+    const response = await page.goto(url, {
+      waitUntil: "domcontentloaded",
+      timeout: 45000,
+    });
+
+    if (response && response.status() >= 400) {
+      warnings.push(`Initial navigation returned HTTP ${response.status()}.`);
+    }
+
+    await page.waitForLoadState("load", { timeout: 10000 }).catch(() => undefined);
+    await page.waitForTimeout(750);
+
+    const title = await page.title().catch(() => "");
+    const finalUrl = page.url();
+
+    console.log("\n--- RAW PLAYWRIGHT COUNTS ---");
+
+for (const selector of [
+  "body",
+  "*",
+  "input",
+  "textarea",
+  "select",
+  "button",
+  '[role="button"]',
+  'input[type="submit"]',
+  "a[href]",
+  "iframe",
+]) {
+  try {
+    console.log(`${selector}:`, await page.locator(selector).count());
+  } catch (error) {
+    console.error(`Selector failed: ${selector}`, error);
+  }
+}
+
+console.log("--- END RAW COUNTS ---\n");
+
+    const [headings, forms, allFields, buttons, links, pageText] = await Promise.all([
+      
+      readElements(page, "h1, h2, h3, h4, h5, h6", 50),
+      inspectForms(page),
+      readElements(page, "input, textarea, select"),
+      readElements(page, 'button, input[type="submit"], input[type="button"], [role="button"]'),
+      readElements(page, "a[href]"),
+      page.locator("body").innerText().catch(() => ""),
+    ]);
+
+    const fieldsOutsideForms: ElementInfo[] = [];
+    const fieldLocator = page.locator("input, textarea, select");
+    const fieldCount = Math.min(await fieldLocator.count(), MAX_ELEMENTS);
+
+    for (let i = 0; i < fieldCount; i++) {
+      const belongsToForm = await fieldLocator.nth(i)
+        .evaluate((element) => element.closest("form") !== null)
+        .catch(() => true);
+      if (!belongsToForm && allFields[i]) fieldsOutsideForms.push(allFields[i]);
+    }
+
+    if (allFields.length >= MAX_ELEMENTS) {
+      warnings.push(`Field inspection was limited to ${MAX_ELEMENTS} elements.`);
+    }
+    if (forms.length === 0) {
+      warnings.push("No standard HTML forms were detected. The website may use custom controls.");
+    }
+    if (headings.length === 0) {
+      warnings.push("No standard heading elements were detected.");
+    }
+
+    return {
+      url,
+      finalUrl,
+      title,
+      headings,
+      forms,
+      fieldsOutsideForms,
+      buttons,
+      links,
+      pageText: shorten(pageText, MAX_TEXT_LENGTH),
+      inspectionWarnings: warnings,
+    };
+  } finally {
+    await browser.close();
+  }
+}
+
+function buildGenerationPrompt(info: WebsiteInfo, userRequirements: string): string {
+  return `
+You are an expert TypeScript and Playwright test-generation agent. Generate a complete,
+generic Playwright test file for the website represented by the inspection data below.
+The tests must be based only on observed evidence and must not assume a particular website,
+framework, login provider, layout, or set of controls.
+
+WEBSITE INSPECTION DATA:
+${JSON.stringify(info, null, 2)}
+
+ADDITIONAL TEST REQUIREMENTS FROM THE USER:
+${userRequirements.trim() || "No additional requirements provided. Generate safe automatic tests only."}
+
+MANDATORY RULES:
+
+1. GENERIC TESTS AND EVIDENCE
+- Use the inspected URL as a plain URL string, never Markdown link syntax.
+- Generate a small, useful set of tests supported by the inspection data: page loads,
+  observed title/headings, observed controls, and observed links where applicable.
+- Do not invent fields, headings, links, selectors, expected values, routes, or success messages.
+- If there is insufficient evidence for an assertion, omit it or use test.skip with a clear reason.
+- NEVER generate unconditional skips such as test.skip(true, ...) or test.fixme(true, ...).
+- A test may be skipped only conditionally for a real runtime prerequisite (for example missing required environment credentials), or when the test genuinely cannot be performed safely.
+- The inspection snapshot may be incomplete or stale; avoid claims beyond the data provided.
+
+2. LOCATORS
+- Prefer observed stable IDs, names, labels, roles, placeholders, and actual tag/type combinations.
+- Use observed tag, type, accessibleName, attributes, and form scope to select controls.
+- Never assume a submit control is a button with a particular accessible name. It may be
+  button, input[type=submit], input[type=button], or a custom control.
+- Use getByRole only when the observed role and accessible name support it.
+- Before using a locator expected to be unique, assert its count. If multiple matches are
+  plausible, refine it with observed context instead of using first() or nth() to hide ambiguity.
+- Do not construct CSS selectors from arbitrary text without escaping. Prefer locator APIs
+  or simple observed IDs/attributes.
+
+3. VISIBILITY AND LINKS
+- The inspection data includes visibility observed at inspection time. Do not assert visibility
+  for an element whose visible field is false.
+- For links, distinguish “exists in DOM” from “visible to a user”. Hidden footer links can be
+  valid DOM elements; do not fail an existence test merely because the link is hidden.
+- Only test visibility for elements observed visible, and only if the assertion is relevant.
+- Do not assume every link is visible in every viewport or page state.
+
+4. HEADINGS AND TEXT
+- Use exact accessible names when the inspected text supports an exact match.
+- Avoid broad regular expressions that can match multiple headings or controls.
+- If a text matcher could match multiple elements, use observed exact text, role, and scope.
+- Do not assert text from snippets that are truncated or ambiguous.
+
+5. FORMS AND INTERACTIONS
+- Keep the inspection phase read-only.
+- A test intended to inspect controls must not fill fields, click submit, or navigate away.
+- Do not submit any form unless the user explicitly requested that interaction or the form is
+  clearly a safe authentication test on a user-authorized test site.
+- Never perform purchases, payments, deletion, messages, account changes, or other consequential
+  actions on a live site. For such workflows, require a designated test environment or safe mock.
+- Use synthetic values only when appropriate and safe; do not claim a submission succeeded without
+  checking a real post-action result.
+- Do not use fixed sleeps as a substitute for waiting on a meaningful condition.
+
+6. AUTHENTICATION
+- Detect possible login elements only from observed links, headings, form fields, buttons, and text.
+- Do not invent a login test if no login option is observed.
+- If a username/password login form is observed and the user requested authentication testing,
+  read credentials at test runtime from environment variables (for example TEST_USERNAME and
+  TEST_PASSWORD), never from hardcoded source values. If credentials are missing, skip conditionally with a
+  clear reason.
+- Never hardcode any username or password, even if example credentials appear in user input.
+- Never create a login test that unconditionally skips because selectors or success indicators are uncertain.
+- Use the observed DOM evidence to identify fields and submit controls; do not invent post-login behavior.
+- Use only observed field selectors and observed submit controls.
+- Verify login using a success indicator actually observed in the inspection or a clearly
+  evidenced post-login page. Do not assume every site redirects to /secure or shows Logout.
+- If a Microsoft/SSO flow is observed, do not try to bypass MFA. Use a visible browser and let
+  the user complete authentication manually, or report that manual authentication is required.
+- Never print secrets, include them in assertion messages, or write them into test reports.
+- Do not assume that credentials from one website work on another.
+
+7. TEST STRUCTURE AND OUTPUT
+- Use @playwright/test, test.describe, and independent tests.
+- Import only available packages. Use process.env for runtime credentials if needed.
+- Do not use page.evaluate() or page.evaluateAll() in generated tests.
+- Return only complete executable TypeScript source code, with no Markdown fences.
+- Avoid brittle assertions and do not generate duplicate tests.
+- The generated test file should be appropriate for the inspected website, but the strategy
+  must remain generic across websites.
+`;
+}
+
+function buildRepairPrompt(
+  info: WebsiteInfo,
+  userRequirements: string,
+  code: string,
+  testOutput: string,
+  attempt: number,
+): string {
+  return `
+You are repairing a generic Playwright TypeScript test file after it failed to run.
+Repair the tests based on the actual failure output, not assumptions about a specific site.
+
+WEBSITE INSPECTION:
+${JSON.stringify(info, null, 2)}
+
+USER REQUIREMENTS:
+${userRequirements.trim() || "Safe automatic tests only."}
+
+CURRENT TEST SOURCE:
+${code}
+
+PLAYWRIGHT OUTPUT FROM REPAIR ATTEMPT ${attempt}:
+${testOutput.slice(-18000)}
+
+Rules:
+- Return the entire corrected TypeScript test file only, without Markdown fences.
+- Fix the root cause evidenced by the output. Do not simply delete a failing test unless its
+  assertion is unsupported by inspection or the action is unsafe; in that case skip it with reason.
+- Keep tests generic and grounded in inspected DOM evidence.
+- Avoid broad text regexes that match multiple elements; use observed exact accessible names
+  or properly scoped locators.
+- Do not require hidden links/controls to be visible. Separate DOM existence and visibility.
+- Do not invent selectors, success messages, routes, or page content.
+- Keep authentication secrets out of source and output. Keep credentials in environment variables.
+- Never return unconditional test.skip(true, ...) or test.fixme(true, ...).
+- Never hardcode username/password values; use process.env.TEST_USERNAME and process.env.TEST_PASSWORD.
+- Do not treat a skipped test as a passing test.
+- Do not weaken a meaningful assertion just to make the test pass.
+- Do not perform consequential actions against live services.
+- Preserve useful passing tests and user-requested requirements.
+`;
+}
+
+async function askCopilot(prompt: string): Promise<string> {
+  const client = new CopilotClient();
+
+  try {
+    await client.start();
+    const session = await client.createSession({ model: MODEL });
+    try {
+      const response = await session.sendAndWait({ prompt }, 180000);
+      const content = response?.data.content?.trim();
+      if (!content) throw new Error("GitHub Copilot returned an empty response.");
+      return extractTypeScript(content);
+    } finally {
+      await session.disconnect().catch(() => undefined);
+    }
+  } finally {
+    await client.stop().catch(() => undefined);
+  }
+}
+
+function extractTypeScript(response: string): string {
+  const trimmed = response.trim();
+  const fenced = trimmed.match(/^```(?:typescript|ts)?\s*\n([\s\S]*?)\n```$/i);
+  return (fenced ? fenced[1] : trimmed).trim() + "\n";
+}
+
+async function generateTests(info: WebsiteInfo, userRequirements: string): Promise<string> {
+  console.log("\nAsking GitHub Copilot to generate tests...");
+  //console.log("User requirements:",buildGenerationPrompt(info, userRequirements));
+  const code = await askCopilot(buildGenerationPrompt(info, userRequirements));
+
+  if (!code.includes("@playwright/test") || !/\btest\s*\(/.test(code)) {
+    throw new Error("Copilot did not return recognizable Playwright test code. No test file was saved.");
+  }
+
+   return code;
+  //return "";
+}
+
+/** Run the local Playwright CLI without shell interpolation. */
+async function runPlaywright(testFile: string): Promise<{ exitCode: number; output: string }> {
+  const cliPath = path.resolve("node_modules", "@playwright", "test", "cli.js");
+
+  return await new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [cliPath, "test", testFile, "--reporter=line"], {
+      cwd: process.cwd(),
+      env: process.env,
+      windowsHide: true,
+    });
+
+    let output = "";
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+
+    child.stdout.on("data", (chunk: string) => {
+      output += chunk;
+      process.stdout.write(chunk);
+    });
+    child.stderr.on("data", (chunk: string) => {
+      output += chunk;
+      process.stderr.write(chunk);
+    });
+
+    child.on("error", reject);
+    child.on("close", (code) => resolve({ exitCode: code ?? 1, output }));
+  });
+}
+
+
+function countTestCases(code: string): number {
+  // Counts Playwright test declarations, including test("..."), test('...'), and test(`...`).
+  // This intentionally does not count test.describe() blocks or test.skip().
+  const matches = code.match(/\btest\s*\(\s*(['"`])/g);
+  return matches?.length ?? 0;
+}
+
+function buildMoreTestsPrompt(
+  info: WebsiteInfo,
+  userRequirements: string,
+  existingCode: string,
+  requestedAdditionalCount: number,
+): string {
+  return `
+You are an expert TypeScript Playwright test-generation agent.
+
+The user already has a test file and explicitly requested ${requestedAdditionalCount} MORE test case(s).
+Return the COMPLETE updated TypeScript test file, preserving the existing useful tests and adding
+approximately ${requestedAdditionalCount} genuinely new, non-duplicate test case(s).
+
+WEBSITE INSPECTION DATA:
+${JSON.stringify(info, null, 2)}
+
+USER REQUIREMENTS:
+${userRequirements.trim() || "Safe automatic tests only."}
+
+EXISTING TEST FILE:
+${existingCode}
+
+MANDATORY RULES:
+- Preserve existing useful tests and user requirements.
+- Add approximately ${requestedAdditionalCount} additional independent test cases, based only on observed evidence.
+- Avoid duplicate tests and do not just rename an existing test.
+- Do not invent selectors, routes, headings, success messages, or website behavior.
+- Never generate unconditional test.skip(true, ...) or test.fixme(true, ...).
+- Never hardcode credentials. Authentication credentials must come from process.env.TEST_USERNAME
+  and process.env.TEST_PASSWORD; skip conditionally only if those values are missing.
+- Do not submit forms or perform consequential actions unless explicitly requested and safe.
+- Do not weaken existing assertions just to make tests pass.
+- Use @playwright/test and return only the complete executable TypeScript source, with no Markdown fences.
+`;
+}
+
+async function generateMoreTests(
+  info: WebsiteInfo,
+  userRequirements: string,
+  existingCode: string,
+  requestedAdditionalCount: number,
+): Promise<string> {
+  console.log(`\nAsking GitHub Copilot to add ${requestedAdditionalCount} more test case(s)...`);
+  const code = await askCopilot(
+    buildMoreTestsPrompt(info, userRequirements, existingCode, requestedAdditionalCount),
+  );
+
+  if (!code.includes("@playwright/test") || !/\btest\s*\(/.test(code)) {
+    throw new Error("Copilot did not return recognizable Playwright test code. Existing file was not overwritten.");
+  }
+
+  return code;
+}
+
+async function main(): Promise<void> {
+  const rl = readline.createInterface({ input: stdin, output: stdout });
+
+  try {
+    const urlInput = await rl.question("Enter the website URL to inspect: ");
+    const url = urlInput.trim();
+
+    let parsedUrl: URL;
+    try {
+      parsedUrl = new URL(url);
+    } catch {
+      throw new Error("Invalid URL. Enter a complete URL, such as https://example.com");
+    }
+
+    if (!["http:", "https:"].includes(parsedUrl.protocol)) {
+      throw new Error("Only HTTP and HTTPS URLs are supported.");
+    }
+
+    const userRequirements = await rl.question(
+      "\nWhat additional tests do you want?\n" +
+      "Describe fields, values, actions, or form submissions.\n" +
+      "Press Enter to generate safe automatic tests only:\n> ",
+    );
+
+console.log("USER REQUIREMENT TAKEN IS---> "+userRequirements);
+let databaseContext = "";
+const tableName = extractTableName(userRequirements);
+if (tableName) {
+console.log(tableName);
+
+try {
+    const rows = await getTableData(tableName);
+
+// Keep sensitive values out of console logs and AI prompts.
+    const safeRows = rows.map((row) =>
+      Object.fromEntries(
+        Object.entries(row).map(([key, value]) => [
+          key,
+          /password|secret|token|api.?key/i.test(key)
+            ? "[REDACTED]"
+            : value,
+        ]),
+      ),
+    );
+
+    databaseContext = JSON.stringify(safeRows, null, 2);
+
+console.log('Retrieved data is ' ,databaseContext);
+} catch (error) {
+console.error(
+"Database retrieval failed:",
+error instanceof Error ? error.message : String(error),
+);
+}
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+    const info = await inspectWebsite(parsedUrl.toString());
+    console.log("info print string" + info.toString());
+    console.log("\nWebsite inspection complete.");
+    console.log("Title:", info.title || "(no title found)");
+    console.log("Final URL:", info.finalUrl);
+    console.log("Headings found:", info.headings.length);
+    console.log("Forms found:", info.forms.length);
+    console.log("Fields inside forms:", info.forms.reduce((total, form) => total + form.fields.length, 0));
+    console.log("Fields outside forms:", info.fieldsOutsideForms.length);
+    console.log("Buttons found:", info.buttons.length);
+    console.log("Links found:", info.links.length);
+
+    if (info.inspectionWarnings.length > 0) {
+      console.log("\nInspection warnings:");
+      for (const warning of info.inspectionWarnings) 
+        console.log("-", warning);
+    }
+
+    const outputDirectory = path.resolve("generated-tests");
+    const outputFile = path.join(outputDirectory, "website.spec.ts");
+    await mkdir(outputDirectory, { recursive: true });
+
+    let code = await generateTests(info, userRequirements);
+    await writeFile(outputFile, code, "utf8");
+
+    let generatedCount = countTestCases(code);
+    console.log("\nGenerated file:", outputFile);
+    console.log(`Initial test cases generated: ${generatedCount}`);
+
+    const moreChoice = (await rl.question(
+      "\nWould you like GitHub Copilot to generate more test cases? (y/N): ",
+    )).trim().toLowerCase();
+
+    if (moreChoice === "y" || moreChoice === "yes") {
+      const countInput = (await rl.question("How many additional test cases would you like? Enter a number (1-30): ")).trim();
+      const requestedCount = Number.parseInt(countInput, 10);
+
+      if (!Number.isInteger(requestedCount) || requestedCount < 1 || requestedCount > 30) {
+        console.log("Invalid number. Keeping the initially generated test cases.");
+      } else {
+        const expandedCode = await generateMoreTests(info, userRequirements, code, requestedCount);
+        const expandedCount = countTestCases(expandedCode);
+
+        if (expandedCount <= generatedCount) {
+          console.warn(
+            `Copilot did not increase the test count (before: ${generatedCount}, after: ${expandedCount}). Keeping the original file.`,
+          );
+        } else {
+          code = expandedCode;
+          generatedCount = expandedCount;
+          await writeFile(outputFile, code, "utf8");
+          console.log(`Updated test file saved: ${outputFile}`);
+        }
+      }
+    }
+
+    console.log(`\nTotal test cases generated: ${generatedCount}`);
+
+    const runChoice = (await rl.question(
+      "\nWould you like to run these test cases now? (y/N): ",
+    )).trim().toLowerCase();
+
+    if (runChoice !== "y" && runChoice !== "yes") {
+      console.log("\nTests were generated but not run.");
+      console.log("Run manually with: npx playwright test generated-tests/website.spec.ts");
+      return;
+    }
+
+    for (let attempt = 0; attempt <= MAX_REPAIR_ATTEMPTS; attempt++) {
+      console.log(`\nRunning generated tests (attempt ${attempt + 1})...`);
+      const result = await runPlaywright(outputFile);
+
+      if (result.exitCode === 0) {
+        console.log("\nAll generated Playwright tests passed.");
+        return;
+      }
+
+      if (attempt === MAX_REPAIR_ATTEMPTS) {
+        console.error("\nTests still have failures after automatic repair attempts.");
+        console.error("Review the output above and the generated test file before rerunning.");
+        return;
+      }
+
+      const repairChoice = (await rl.question(
+        `\nSome tests failed. Ask Copilot to repair the code and rerun? (y/N): `,
+      )).trim().toLowerCase();
+
+      if (repairChoice !== "y" && repairChoice !== "yes") {
+        console.log("\nAutomatic repair stopped. Generated tests are saved for manual review.");
+        return;
+      }
+
+      console.log("\nAsking Copilot to repair the failing tests...");
+      code = await askCopilot(
+        buildRepairPrompt(info, userRequirements, code, result.output, attempt + 1),
+      );
+
+      if (!code.includes("@playwright/test") || !/\btest\s*\(/.test(code)) {
+        throw new Error("Copilot's repair response was not valid Playwright test code.");
+      }
+
+      await writeFile(outputFile, code, "utf8");
+      console.log("Updated test file saved:", outputFile);
+    }
+  } finally {
+    rl.close();
+  }
+}
+
+
+async function getTableData(
+  tableName: string,
+): Promise<Record<string, unknown>[]> {
+  if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(tableName)) {
+    throw new Error("Invalid PostgreSQL table name.");
+  }
+
+  const client = new Client({
+    host: process.env.DB_HOST || "localhost",
+    port: Number(process.env.DB_PORT || 5432),
+    database: process.env.DB_NAME || "test_cred",
+    user: process.env.DB_USER || "postgres",
+    password: process.env.DB_PASSWORD || "2242",
   });
 
-  test('shows the enquiry and messages sections', async ({ page }) => {
-    await page.goto('https://learnui2026.github.io/learnui2026/');
+  try {
+    await client.connect();
 
-    await expect(page.getByRole('heading', { level: 2, name: 'SEND Enquiry' })).toBeVisible();
-    await expect(page.getByRole('heading', { level: 2, name: 'All Messages' })).toBeVisible();
-  });
+    const check = await client.query(
+      `SELECT table_name
+       FROM information_schema.tables
+       WHERE table_schema = $1 AND table_name = $2`,
+      ["public", tableName],
+    );
 
-  test('provides the observed enquiry fields and controls', async ({ page }) => {
-    await page.goto('https://learnui2026.github.io/learnui2026/');
+    if (check.rowCount === 0) {
+      throw new Error(`Table "${tableName}" does not exist.`);
+    }
 
-    const senderField = page.locator('#sender');
-    await expect(senderField).toHaveCount(1);
-    await expect(senderField).toBeVisible();
+    const result = await client.query(
+      `SELECT * FROM public."${tableName}" LIMIT 100`,
+    );
 
-    const messageField = page.locator('#message');
-    await expect(messageField).toHaveCount(1);
-    await expect(messageField).toBeVisible();
+    return result.rows as Record<string, unknown>[];
+  } finally {
+    await client.end();
+  }
+}
 
-    const sendButton = page.locator('#sendButton');
-    await expect(sendButton).toHaveCount(1);
-    await expect(sendButton).toBeVisible();
 
-    const fetchButton = page.locator('#fetchButton');
-    await expect(fetchButton).toHaveCount(1);
-    await expect(fetchButton).toBeVisible();
-  });
+function extractTableName(prompt: string): string | null {
+  const patterns = [
+    /\btable(?:\s+name)?\s*(?:is|:)?\s*["'`]?([a-zA-Z_][a-zA-Z0-9_]*)/i,
+    /\b([a-zA-Z_][a-zA-Z0-9_]*)\s+table\b/i,
+  ];
 
-  test('shows the observed host meeting link', async ({ page }) => {
-    await page.goto('https://learnui2026.github.io/learnui2026/');
+  for (const pattern of patterns) {
+    const match = prompt.match(pattern);
 
-    const meetingLink = page.getByRole('link', { name: '🎥 Join Meet With Host' });
-    await expect(meetingLink).toHaveCount(1);
-    await expect(meetingLink).toBeVisible();
-    await expect(meetingLink).toHaveAttribute('href', 'https://meet.google.com/vse-fpwh-fcd');
-  });
+    if (match) {
+      return match[1];
+    }
+  }
 
-  // Sending an enquiry is not exercised because it may create a live message.
+  return null;
+}
+
+
+
+main().catch((error: unknown) => {
+  const message = error instanceof Error ? error.message : String(error);
+  console.error("\nAgent failed:", message);
+  console.error("Check that GitHub Copilot SDK is installed, authenticated, and permitted by your organization.");
+  process.exitCode = 1;
 });
