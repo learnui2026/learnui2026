@@ -3186,3 +3186,7 @@ Message: Ok tum to bole guest ko check in karna hai
 Sender: Radha
 Message: Kaha ho abhi
 
+[2026-10-23T20:24:13.495Z]
+Sender: Host
+Message: Check in karwa diya guest ko, uske bad uska call aya
+
