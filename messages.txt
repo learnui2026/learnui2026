@@ -3406,3 +3406,7 @@ Message: Tum 5 ya 6 se pehle aaw indore to bata dena 1 bar mil lege
 Sender: Host
 Message: Platform regular check karte rehna, mai jab delhi niklu ga to ush se pehle message dal dunga
 
+[2026-10-28T12:18:19.751Z]
+Sender: Test User 1793189898295-5009
+Message: Automated Playwright enquiry 1793189898295-5009. This is a test message.
+
